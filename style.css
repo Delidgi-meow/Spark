@@ -4,7 +4,7 @@
 
 /* ── FAB ── */
 #spark-fab {
-    position: fixed;
+    position: fixed !important;
     width: 56px;
     height: 90px;
     border-radius: 14px;
@@ -12,13 +12,16 @@
     border: 1.5px solid rgba(255, 107, 157, .35);
     box-shadow: 0 8px 24px rgba(255, 107, 157, .35), 0 2px 8px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .1);
     cursor: grab;
-    z-index: 2147483000;
+    z-index: 2147483000 !important;
     padding: 4px;
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
     transition: transform .2s, box-shadow .25s;
     font-family: inherit;
     touch-action: none;
     -webkit-user-select: none; user-select: none;
+    margin: 0 !important;
+    left: auto !important;
+    contain: layout;
 }
 #spark-fab:hover { transform: translateY(-2px) scale(1.03); box-shadow: 0 12px 32px rgba(255, 107, 157, .5), 0 2px 8px rgba(0, 0, 0, .5); }
 #spark-fab:active, #spark-fab.spark-fab-dragging { cursor: grabbing; transform: scale(.97); transition: none; }

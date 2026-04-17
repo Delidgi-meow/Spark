@@ -37,10 +37,27 @@ function injectFab() {
         <div class="spark-fab-screen"><div class="spark-fab-logo">✦</div></div>
         <div class="spark-fab-hint">Spark</div>
     `;
-    document.body.appendChild(fab);
-    console.log(LOG, `FAB создан: right=${right}px top=${top}px viewport=${vw}x${vh}`);
+    // Прикрепляем к html (documentElement), а не к body — потому что у ST на мобиле
+    // некоторые обёртки над <body> получают transform/filter, что ломает position:fixed
+    // (fixed-элемент тогда фиксируется относительно transformed-предка, а не viewport).
+    // <html> гарантированно без transform.
+    (document.documentElement || document.body).appendChild(fab);
+    console.log(LOG, `FAB создан: right=${right}px top=${top}px viewport=${vw}x${vh} parent=${fab.parentNode?.tagName}`);
     updateFabBadge();
     makeFabDraggable(fab);
+
+    // Защита от «убегания»: если FAB на ресайзе/скролле оказался вне viewport — возвращаем.
+    const guard = () => {
+        const r = fab.getBoundingClientRect();
+        if (r.top < 0 || r.top > window.innerHeight - 20 || r.right < 20 || r.left > window.innerWidth - 20) {
+            fab.style.top = Math.max(120, window.innerHeight - 200) + 'px';
+            fab.style.right = '20px';
+            fab.style.bottom = 'auto';
+            console.warn(LOG, 'FAB улетел — вернул на экран');
+        }
+    };
+    window.addEventListener('resize', guard);
+    window.addEventListener('orientationchange', guard);
 }
 
 // Перетаскивание: зажать и тащить. Клик (без движения) — открывает приложение.
