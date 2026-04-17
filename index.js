@@ -20,35 +20,38 @@ function injectFab() {
 
     // Clamp сохранённой позиции к текущему viewport — защита если передвинули
     // на большом экране, а открыли на маленьком (FAB уезжал за экран).
+    // Используем top/right (не bottom!) — на мобильном `bottom` прыгает из-за
+    // адресной строки и нижних панелей ST, top всегда стабилен.
     const vw = window.innerWidth || 360;
     const vh = window.innerHeight || 640;
     let right = settings.fabPosition?.right ?? 20;
-    let bottom = settings.fabPosition?.bottom ?? 120;
+    let top = settings.fabPosition?.top ?? 120;
     right = Math.max(0, Math.min(vw - 56, right));
-    bottom = Math.max(0, Math.min(vh - 90, bottom));
+    top = Math.max(0, Math.min(vh - 90, top));
     fab.style.right = `${right}px`;
-    fab.style.bottom = `${bottom}px`;
+    fab.style.top = `${top}px`;
+    fab.style.bottom = 'auto';
 
     fab.innerHTML = `
         <div class="spark-fab-screen"><div class="spark-fab-logo">✦</div></div>
         <div class="spark-fab-hint">Spark</div>
     `;
     document.body.appendChild(fab);
-    console.log(LOG, `FAB создан: right=${right}px bottom=${bottom}px viewport=${vw}x${vh}`);
+    console.log(LOG, `FAB создан: right=${right}px top=${top}px viewport=${vw}x${vh}`);
     updateFabBadge();
     makeFabDraggable(fab);
 }
 
 // Перетаскивание: зажать и тащить. Клик (без движения) — открывает приложение.
 function makeFabDraggable(fab) {
-    let startX = 0, startY = 0, origRight = 0, origBottom = 0;
+    let startX = 0, startY = 0, origRight = 0, origTop = 0;
     let dragging = false, moved = false;
 
     const onDown = (e) => {
         const p = e.touches ? e.touches[0] : e;
         startX = p.clientX; startY = p.clientY;
         origRight = parseInt(fab.style.right, 10) || 20;
-        origBottom = parseInt(fab.style.bottom, 10) || 120;
+        origTop = parseInt(fab.style.top, 10) || 120;
         dragging = true; moved = false;
         fab.classList.add('spark-fab-dragging');
         e.preventDefault();
@@ -59,11 +62,12 @@ function makeFabDraggable(fab) {
         const dx = p.clientX - startX;
         const dy = p.clientY - startY;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
-        // Инвертируем: right уменьшается при движении вправо, bottom — при движении вниз
+        // right уменьшается при движении вправо; top растёт при движении вниз
         const newRight = Math.max(0, Math.min(window.innerWidth - 56, origRight - dx));
-        const newBottom = Math.max(0, Math.min(window.innerHeight - 90, origBottom - dy));
+        const newTop = Math.max(0, Math.min(window.innerHeight - 90, origTop + dy));
         fab.style.right = `${newRight}px`;
-        fab.style.bottom = `${newBottom}px`;
+        fab.style.top = `${newTop}px`;
+        fab.style.bottom = 'auto';
         e.preventDefault();
     };
     const onUp = () => {
@@ -74,7 +78,7 @@ function makeFabDraggable(fab) {
             const settings = getSettings();
             settings.fabPosition = {
                 right: parseInt(fab.style.right, 10) || 20,
-                bottom: parseInt(fab.style.bottom, 10) || 120,
+                top: parseInt(fab.style.top, 10) || 120,
             };
             import('./state.js').then(m => m.saveSettings());
         } else {
@@ -205,10 +209,10 @@ else init();
 window.sparkOpen = openApp;
 window.sparkFabReset = () => {
     const settings = getSettings();
-    settings.fabPosition = { right: 20, bottom: 120 };
+    settings.fabPosition = { right: 20, top: 120 };
     import('./state.js').then(m => m.saveSettings());
     const fab = document.getElementById('spark-fab');
-    if (fab) { fab.style.right = '20px'; fab.style.bottom = '120px'; }
+    if (fab) { fab.style.right = '20px'; fab.style.top = '120px'; fab.style.bottom = 'auto'; }
     console.log(LOG, 'позиция FAB сброшена');
 };
 window.sparkDebug = () => {
