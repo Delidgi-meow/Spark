@@ -1,0 +1,12 @@
+{
+    "display_name": "Spark Dating App",
+    "loading_order": 15,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Kissa",
+    "version": "3.0.0",
+    "homePage": "",
+    "auto_update": false
+}

@@ -1,0 +1,272 @@
+/* ═══════════════════════════════════════════
+   SPARK DATING APP — стили
+   ═══════════════════════════════════════════ */
+
+/* ── FAB ── */
+#spark-fab {
+    position: fixed;
+    width: 56px;
+    height: 90px;
+    border-radius: 14px;
+    background: linear-gradient(165deg, #1f0a26 0%, #0d0612 100%);
+    border: 1.5px solid rgba(255, 107, 157, .35);
+    box-shadow: 0 8px 24px rgba(255, 107, 157, .35), 0 2px 8px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .1);
+    cursor: pointer;
+    z-index: 9999;
+    padding: 4px;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    transition: transform .2s, box-shadow .25s;
+    font-family: inherit;
+}
+#spark-fab:hover { transform: translateY(-2px) scale(1.03); box-shadow: 0 12px 32px rgba(255, 107, 157, .5), 0 2px 8px rgba(0, 0, 0, .5); }
+#spark-fab:active { transform: scale(.97); }
+.spark-fab-screen {
+    flex: 1; width: 100%; border-radius: 10px;
+    background: radial-gradient(circle at 30% 20%, rgba(255, 107, 157, .3), transparent 70%), linear-gradient(135deg, #2a0d33, #0f0815);
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+}
+.spark-fab-logo {
+    font-size: 28px;
+    background: linear-gradient(135deg, #ff6b9d, #c66bff, #7ba8ff);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 8px rgba(255, 107, 157, .5));
+    animation: spark-fab-pulse 3s ease-in-out infinite;
+}
+@keyframes spark-fab-pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: .85; } }
+.spark-fab-hint { font-size: 9px; font-weight: 600; color: #a899a3; letter-spacing: 1.5px; text-transform: uppercase; padding: 2px 0; }
+.spark-fab-badge {
+    position: absolute; top: -6px; right: -6px;
+    min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #ff6b9d, #c66bff);
+    color: #fff; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(255, 107, 157, .6);
+    border: 2px solid #0d0612; z-index: 1;
+}
+
+/* ── MODAL ── */
+#spark-modal {
+    position: fixed; inset: 0; z-index: 10000;
+    display: none; align-items: center; justify-content: center;
+    padding: 20px; box-sizing: border-box;
+}
+#spark-modal.open { display: flex; }
+.spark-modal-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, .7);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    animation: spark-fade-in .2s ease;
+}
+@keyframes spark-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes spark-slide-up { from { opacity: 0; transform: translateY(20px) scale(.98) } to { opacity: 1; transform: translateY(0) scale(1) } }
+
+/* ── APP ── */
+.spark-app {
+    font-family: 'Comfortaa', 'Nunito', system-ui, sans-serif;
+    width: 100%; max-width: 400px;
+    height: calc(100vh - 40px);
+    max-height: 850px;
+    display: flex; flex-direction: column;
+    background: linear-gradient(165deg, #1f0a26 0%, #0d0612 100%);
+    border-radius: 28px;
+    color: #f5e6f0;
+    box-shadow: 0 20px 60px rgba(255, 107, 180, .25), inset 0 1px 0 rgba(255, 255, 255, .08);
+    position: relative; overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, .08);
+    z-index: 1;
+    animation: spark-slide-up .25s ease;
+}
+.spark-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 107, 157, .3) transparent; position: relative; z-index: 2; }
+.spark-body::-webkit-scrollbar { width: 6px; }
+.spark-body::-webkit-scrollbar-thumb { background: rgba(255, 107, 157, .3); border-radius: 3px; }
+.spark-body-fill { display: flex; flex-direction: column; overflow: hidden; }
+.spark-app::before { content: ""; position: absolute; top: -50%; right: -30%; width: 80%; height: 80%; background: radial-gradient(circle, rgba(255, 107, 157, .12) 0%, transparent 60%); pointer-events: none; z-index: 0; }
+.spark-app::after { content: ""; position: absolute; bottom: -40%; left: -30%; width: 80%; height: 80%; background: radial-gradient(circle, rgba(180, 107, 255, .1) 0%, transparent 60%); pointer-events: none; z-index: 0; }
+
+/* ── Header / tabs ── */
+.spark-status-bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 22px 8px; font-size: 13px; font-weight: 600; color: #f5e6f0; position: relative; z-index: 2; letter-spacing: -0.3px; }
+.spark-status-icons { display: flex; gap: 6px; align-items: center; opacity: .7; }
+.spark-status-icons svg { width: 14px; height: 14px; fill: currentColor; }
+
+.spark-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 22px 18px; position: relative; z-index: 2; }
+.spark-logo { display: flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 700; letter-spacing: -0.8px; background: linear-gradient(95deg, #ff6b9d 0%, #c66bff 60%, #7ba8ff 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.spark-logo svg { width: 28px; height: 28px; flex-shrink: 0; }
+.spark-loc { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #a899a3; letter-spacing: 0.3px; padding: 5px 10px; background: rgba(255, 255, 255, .04); border-radius: 10px; border: 1px solid rgba(255, 255, 255, .06); }
+.spark-loc svg { width: 10px; height: 10px; fill: #ff6b9d; }
+
+.spark-tabs { display: flex; gap: 4px; margin: 0 22px 18px; padding: 5px; background: rgba(255, 255, 255, .04); border-radius: 14px; border: 1px solid rgba(255, 255, 255, .06); position: relative; z-index: 2; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06); }
+.spark-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 9px; border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; color: #a899a3; transition: all .25s; letter-spacing: 0.2px; position: relative; }
+.spark-tab svg { width: 13px; height: 13px; fill: currentColor; opacity: .8; }
+.spark-tab.active { background: linear-gradient(135deg, rgba(255, 107, 157, .22), rgba(198, 107, 255, .16)); color: #ffd0e0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 2px 8px rgba(255, 107, 157, .15); }
+.spark-unread-pill { background: linear-gradient(135deg, #ff6b9d, #c66bff); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 8px; margin-left: 4px; }
+
+/* ── Card ── */
+.spark-card { margin: 0 16px 16px; background: linear-gradient(180deg, rgba(255, 255, 255, .05) 0%, rgba(255, 255, 255, .02) 100%); border-radius: 22px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .08); position: relative; z-index: 2; box-shadow: 0 8px 32px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .1); }
+.spark-photo { width: 100%; aspect-ratio: 3/4; position: relative; display: flex; align-items: flex-end; padding: 18px; overflow: hidden; box-sizing: border-box; }
+.spark-photo .spark-avatar { position: absolute; inset: 0; z-index: 0; }
+.spark-photo-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(15, 8, 21, .9) 100%); z-index: 1; }
+.spark-photo-shine { position: absolute; top: 0; left: 0; width: 100%; height: 50%; background: linear-gradient(180deg, rgba(255, 255, 255, .06) 0%, transparent 100%); z-index: 1; pointer-events: none; }
+.spark-name-row { position: relative; z-index: 2; width: 100%; }
+.spark-name { font-size: 28px; font-weight: 700; color: #fff; margin: 0; text-shadow: 0 2px 12px rgba(0, 0, 0, .7); letter-spacing: -0.5px; }
+.spark-age { font-weight: 300; color: #f5e6f0; margin-left: 8px; font-size: 24px; opacity: .85; }
+.spark-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #d8c8d2; margin-top: 6px; text-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+.spark-meta svg { width: 11px; height: 11px; fill: #ff6b9d; flex-shrink: 0; }
+.spark-meta-dot { width: 4px; height: 4px; border-radius: 50%; background: #5fff8a; box-shadow: 0 0 6px #5fff8a; animation: spark-pulse 2s infinite; }
+@keyframes spark-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .5 } }
+
+.spark-info { padding: 16px 18px; }
+.spark-bio { font-size: 13.5px; line-height: 1.55; color: #e8d8e2; font-style: italic; margin: 0 0 14px; padding: 13px 14px; background: linear-gradient(135deg, rgba(255, 107, 157, .06), rgba(198, 107, 255, .04)); border-left: 2px solid rgba(255, 107, 157, .5); border-radius: 8px; position: relative; }
+.spark-bio::before { content: "\201C"; position: absolute; top: -4px; left: 8px; font-size: 32px; color: rgba(255, 107, 157, .3); font-family: Georgia, serif; line-height: 1; }
+.spark-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.spark-tag { background: linear-gradient(135deg, rgba(198, 107, 255, .12), rgba(255, 107, 157, .08)); color: #e0b8ff; padding: 5px 11px; border-radius: 14px; font-size: 11px; font-weight: 500; border: 1px solid rgba(198, 107, 255, .18); letter-spacing: 0.2px; }
+.spark-redflag { margin-top: 10px; padding: 10px 12px; background: rgba(255, 80, 80, .05); border: 1px dashed rgba(255, 120, 120, .22); border-radius: 10px; font-size: 11.5px; color: #ffb8b8; font-style: italic; line-height: 1.5; display: flex; gap: 8px; align-items: flex-start; }
+.spark-redflag svg { width: 13px; height: 13px; fill: #ff8888; flex-shrink: 0; margin-top: 1px; opacity: .7; }
+
+.spark-actions { display: flex; justify-content: center; align-items: center; gap: 18px; padding: 18px 0 22px; }
+.spark-btn { border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform .15s ease, box-shadow .25s ease; position: relative; -webkit-tap-highlight-color: transparent; padding: 0; }
+.spark-btn:active { transform: scale(.9); }
+.spark-btn svg { width: 50%; height: 50%; }
+.spark-btn-pass { width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .02)); border: 1.5px solid rgba(255, 138, 138, .35); color: #ff8a8a; box-shadow: 0 4px 16px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .08); }
+.spark-btn-super { width: 46px; height: 46px; border-radius: 50%; background: linear-gradient(135deg, rgba(106, 208, 255, .18), rgba(106, 208, 255, .05)); border: 1.5px solid rgba(106, 208, 255, .45); color: #7fdfff; box-shadow: 0 4px 16px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .1); }
+.spark-btn-like { width: 62px; height: 62px; border-radius: 50%; background: linear-gradient(135deg, #ff6b9d 0%, #c66bff 100%); color: #fff; box-shadow: 0 6px 24px rgba(255, 107, 157, .45), inset 0 1px 0 rgba(255, 255, 255, .25); border: none; }
+
+.spark-page-indicator { display: flex; justify-content: center; gap: 4px; padding: 6px 0 10px; position: relative; z-index: 2; }
+.spark-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .15); }
+.spark-dot.active { background: linear-gradient(135deg, #ff6b9d, #c66bff); box-shadow: 0 0 8px rgba(255, 107, 157, .5); }
+
+/* ── Matches strip ── */
+.spark-matches-section { margin: 0 16px 16px; padding: 14px 16px; background: rgba(255, 255, 255, .03); border-radius: 18px; border: 1px solid rgba(255, 255, 255, .06); position: relative; z-index: 2; }
+.spark-matches-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.8px; color: #a899a3; margin-bottom: 10px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.spark-matches-title svg { width: 10px; height: 10px; fill: #ff6b9d; }
+.spark-match-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.spark-match-row::-webkit-scrollbar { display: none; }
+.spark-match-empty { text-align: center; color: #7a6a73; font-size: 11.5px; padding: 14px 8px; font-style: italic; width: 100%; }
+.spark-match-chip { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; position: relative; padding: 4px; transition: transform .15s; }
+.spark-match-chip:hover { transform: translateY(-2px); }
+.spark-match-chip-name { font-size: 10px; color: #d8c8d2; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spark-unread-dot { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; background: linear-gradient(135deg, #ff6b9d, #c66bff); border: 2px solid #0d0612; box-shadow: 0 0 6px rgba(255, 107, 157, .6); }
+
+/* ── Match screen ── */
+.spark-match-screen { background: linear-gradient(135deg, rgba(255, 107, 157, .13), rgba(198, 107, 255, .13)); border: 1px solid rgba(255, 107, 157, .3); border-radius: 18px; padding: 24px 16px; text-align: center; margin: 16px; position: relative; z-index: 2; }
+.spark-match-title { font-size: 28px; font-weight: 700; background: linear-gradient(90deg, #ff6b9d, #c66bff); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+.spark-match-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+.spark-match-btn { padding: 10px 18px; border-radius: 14px; font-size: 13px; font-weight: 600; border: 1px solid rgba(255, 255, 255, .1); cursor: pointer; font-family: inherit; }
+.spark-match-btn.primary { background: linear-gradient(135deg, #ff6b9d, #c66bff); color: white; }
+.spark-match-btn.secondary { background: rgba(255, 255, 255, .06); color: #d8c8d2; }
+
+/* ── Matches list view ── */
+.spark-matches-list { margin: 0 12px 16px; position: relative; z-index: 2; display: flex; flex-direction: column; gap: 4px; }
+.spark-match-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; cursor: pointer; background: rgba(255, 255, 255, .03); border: 1px solid rgba(255, 255, 255, .05); transition: background .2s; }
+.spark-match-item:hover { background: rgba(255, 255, 255, .06); }
+.spark-match-item-body { flex: 1; min-width: 0; }
+.spark-match-item-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.spark-match-item-name { color: #fff; font-weight: 600; font-size: 14px; }
+.spark-match-item-time { color: #a899a3; font-size: 10px; flex-shrink: 0; }
+.spark-match-item-preview { color: #a899a3; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+
+/* ── Chat ── */
+.spark-chat { margin: 0 12px 12px; position: relative; z-index: 2; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.spark-chat-header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(255, 255, 255, .04); border-radius: 14px; border: 1px solid rgba(255, 255, 255, .06); margin-bottom: 8px; flex-shrink: 0; }
+.spark-chat-back { background: none; border: none; cursor: pointer; color: #ff6b9d; padding: 4px; display: flex; align-items: center; }
+.spark-chat-back svg { width: 22px; height: 22px; }
+.spark-chat-header-body { flex: 1; min-width: 0; }
+.spark-chat-name { color: #fff; font-weight: 600; font-size: 14px; }
+.spark-chat-status { color: #5fff8a; font-size: 10px; }
+
+.spark-chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 4px; display: flex; flex-direction: column; gap: 6px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .1) transparent; }
+.spark-chat-body::-webkit-scrollbar { width: 4px; }
+.spark-chat-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .1); border-radius: 2px; }
+.spark-chat-hint { text-align: center; color: #7a6a73; font-size: 11.5px; padding: 40px 8px; font-style: italic; }
+
+.spark-msg { max-width: 75%; padding: 9px 13px; border-radius: 16px; font-size: 13.5px; line-height: 1.4; word-wrap: break-word; animation: spark-msg-in .25s ease; }
+@keyframes spark-msg-in { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: translateY(0) } }
+.spark-msg-user { align-self: flex-end; background: linear-gradient(135deg, #ff6b9d, #c66bff); color: #fff; border-bottom-right-radius: 4px; }
+.spark-msg-boy { align-self: flex-start; background: rgba(255, 255, 255, .06); color: #e8d8e2; border: 1px solid rgba(255, 255, 255, .05); border-bottom-left-radius: 4px; }
+.spark-msg-deleted { text-decoration: line-through; opacity: .4; font-style: italic; }
+.spark-msg-image { display: block; max-width: 100%; max-height: 240px; border-radius: 10px; margin-bottom: 4px; cursor: zoom-in; transition: transform .15s ease; }
+.spark-msg-image:hover { transform: scale(1.02); }
+.spark-msg-image-loading { min-width: 160px; height: 110px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, .04); color: #a899a3; font-size: 12px; border: 1px dashed rgba(255, 255, 255, .12); }
+
+#spark-image-zoom {
+    position: fixed; inset: 0; z-index: 2147483647;
+    background: rgba(0, 0, 0, .92);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; animation: spark-zoom-fade .15s ease;
+}
+#spark-image-zoom .spark-zoom-img {
+    max-width: 100%; max-height: 100%;
+    border-radius: 12px; box-shadow: 0 10px 60px rgba(0, 0, 0, .8);
+    cursor: zoom-out; object-fit: contain;
+}
+#spark-image-zoom .spark-zoom-close {
+    position: absolute; top: 16px; right: 16px;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255, 255, 255, .1); color: #fff;
+    border: 1px solid rgba(255, 255, 255, .15);
+    font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+#spark-image-zoom .spark-zoom-close:hover { background: rgba(255, 255, 255, .2); }
+@keyframes spark-zoom-fade { from { opacity: 0; } to { opacity: 1; } }
+.spark-msg-text { white-space: pre-wrap; }
+
+.spark-typing { display: flex; gap: 4px; align-items: center; padding: 12px 14px !important; }
+.spark-typing span { width: 6px; height: 6px; border-radius: 50%; background: #a899a3; animation: spark-typing 1.4s infinite; }
+.spark-typing span:nth-child(2) { animation-delay: .2s; }
+.spark-typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes spark-typing { 0%, 60%, 100% { opacity: .3 } 30% { opacity: 1 } }
+
+.spark-chat-input { display: flex; gap: 8px; padding: 8px; background: rgba(255, 255, 255, .04); border-radius: 24px; border: 1px solid rgba(255, 255, 255, .08); margin-top: 8px; align-items: center; flex-shrink: 0; }
+.spark-chat-attach { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; color: #a899a3; transition: color .2s, background .2s; }
+.spark-chat-attach:hover { color: #ff6b9d; background: rgba(255, 107, 157, .1); }
+.spark-chat-attach svg { width: 18px; height: 18px; }
+.spark-chat-field { flex: 1; background: none; border: none; color: #f5e6f0; font-size: 13.5px; font-family: inherit; padding: 8px 4px; outline: none; min-width: 0; }
+.spark-chat-field::placeholder { color: #7a6a73; font-style: italic; }
+.spark-chat-send { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #ff6b9d, #c66bff); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; transition: transform .15s; }
+.spark-chat-send:active { transform: scale(.92); }
+.spark-chat-send svg { width: 16px; height: 16px; }
+.spark-chat-hint-small { text-align: center; font-size: 10px; color: #7a6a73; font-style: italic; margin-top: 8px; padding: 0 16px; }
+
+/* ── Empty state ── */
+.spark-empty { margin: 40px 16px; padding: 40px 20px; background: rgba(255, 255, 255, .03); border: 1px solid rgba(255, 255, 255, .06); border-radius: 20px; text-align: center; position: relative; z-index: 2; }
+.spark-empty-icon { font-size: 40px; margin-bottom: 12px; opacity: .5; }
+.spark-empty-title { font-size: 16px; color: #f5e6f0; font-weight: 600; margin-bottom: 6px; }
+.spark-empty-sub { font-size: 12px; color: #a899a3; margin-bottom: 18px; line-height: 1.5; }
+
+/* ── Settings ── */
+.spark-settings { margin: 0 16px 16px; position: relative; z-index: 2; }
+.spark-set-section { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #ff6b9d; margin: 16px 0 8px; font-weight: 700; }
+.spark-set-section:first-child { margin-top: 0; }
+.spark-set-field { display: block; margin-bottom: 6px; }
+.spark-set-field.row { display: flex; align-items: center; gap: 8px; }
+.spark-set-field span { display: block; font-size: 12px; color: #d8c8d2; margin-bottom: 4px; }
+.spark-set-field.row span { margin-bottom: 0; }
+.spark-set-input { width: 100%; padding: 8px 10px; background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .08); border-radius: 8px; color: #f5e6f0; font-size: 13px; font-family: inherit; box-sizing: border-box; outline: none; }
+.spark-set-input:focus { border-color: rgba(255, 107, 157, .4); }
+.spark-set-hint { font-size: 10.5px; color: #7a6a73; font-style: italic; margin-bottom: 10px; line-height: 1.4; }
+.spark-set-btn { display: inline-flex; align-items: center; gap: 4px; padding: 8px 14px; background: linear-gradient(135deg, rgba(255, 107, 157, .2), rgba(198, 107, 255, .15)); border: 1px solid rgba(255, 107, 157, .3); border-radius: 10px; color: #ffd0e0; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .2s; }
+.spark-set-btn:hover { background: linear-gradient(135deg, rgba(255, 107, 157, .3), rgba(198, 107, 255, .25)); }
+.spark-set-btn.small { padding: 5px 10px; font-size: 11px; }
+.spark-set-btn.danger { background: rgba(255, 80, 80, .12); border-color: rgba(255, 80, 80, .35); color: #ffb0b0; }
+.spark-set-btn:disabled { opacity: .5; cursor: wait; }
+
+.spark-set-avatars { display: flex; flex-direction: column; gap: 6px; }
+.spark-set-avatar-row { display: flex; align-items: center; gap: 6px; padding: 6px; background: rgba(255, 255, 255, .03); border-radius: 10px; border: 1px solid rgba(255, 255, 255, .05); flex-wrap: wrap; }
+.spark-set-avatar-name { flex: 1; font-size: 13px; color: #e8d8e2; min-width: 80px; }
+
+.spark-set-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-end; }
+.spark-set-status { font-size: 10px; font-weight: 600; margin-left: 6px; padding: 2px 6px; border-radius: 6px; text-transform: none; letter-spacing: 0; }
+.spark-set-status.ok { color: #5fff8a; background: rgba(95, 255, 138, .1); }
+.spark-set-status.warn { color: #ffcc66; background: rgba(255, 204, 102, .1); }
+.spark-set-status.err { color: #ff8888; background: rgba(255, 136, 136, .1); }
+select.spark-set-input { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, #ff6b9d 50%), linear-gradient(135deg, #ff6b9d 50%, transparent 50%); background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px; cursor: pointer; }
+select.spark-set-input option { background: #1f0a26; color: #f5e6f0; }
+
+/* ── Mobile ── */
+@media (max-width: 500px) {
+    #spark-modal { padding: 0; }
+    .spark-app { max-width: 100%; max-height: 100vh; border-radius: 0; }
+    #spark-fab { right: 12px !important; bottom: 80px !important; }
+}
