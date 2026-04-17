@@ -25,7 +25,8 @@ function injectFab() {
     const vw = window.innerWidth || 360;
     const vh = window.innerHeight || 640;
     let right = settings.fabPosition?.right ?? 20;
-    let top = settings.fabPosition?.top ?? 120;
+    // Дефолтная позиция: ~200px от низа viewport (над нижней панелью ST, но не у самого края).
+    let top = settings.fabPosition?.top ?? Math.max(120, vh - 200);
     right = Math.max(0, Math.min(vw - 56, right));
     top = Math.max(0, Math.min(vh - 90, top));
     fab.style.right = `${right}px`;
@@ -208,12 +209,13 @@ else init();
 
 window.sparkOpen = openApp;
 window.sparkFabReset = () => {
+    const vh = window.innerHeight || 640;
     const settings = getSettings();
-    settings.fabPosition = { right: 20, top: 120 };
+    settings.fabPosition = { right: 20, top: Math.max(120, vh - 200) };
     import('./state.js').then(m => m.saveSettings());
     const fab = document.getElementById('spark-fab');
-    if (fab) { fab.style.right = '20px'; fab.style.top = '120px'; fab.style.bottom = 'auto'; }
-    console.log(LOG, 'позиция FAB сброшена');
+    if (fab) { fab.style.right = '20px'; fab.style.top = settings.fabPosition.top + 'px'; fab.style.bottom = 'auto'; }
+    console.log(LOG, 'позиция FAB сброшена:', settings.fabPosition);
 };
 window.sparkDebug = () => {
     const s = loadState();
