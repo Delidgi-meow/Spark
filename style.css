@@ -53,9 +53,12 @@
 
 /* ── MODAL ── */
 #spark-modal {
-    position: fixed; inset: 0; z-index: 10000;
+    position: fixed !important; inset: 0 !important;
+    z-index: 2147483001 !important;
     display: none; align-items: center; justify-content: center;
     padding: 20px; box-sizing: border-box;
+    width: 100vw; height: 100vh;
+    height: 100dvh; /* dynamic viewport — учитывает мобильные панели */
 }
 #spark-modal.open { display: flex; }
 .spark-modal-backdrop {
@@ -72,6 +75,7 @@
     font-family: 'Comfortaa', 'Nunito', system-ui, sans-serif;
     width: 100%; max-width: 400px;
     height: calc(100vh - 40px);
+    height: calc(100dvh - 40px);
     max-height: 850px;
     display: flex; flex-direction: column;
     background: linear-gradient(165deg, #1f0a26 0%, #0d0612 100%);
@@ -271,7 +275,14 @@ select.spark-set-input option { background: #1f0a26; color: #f5e6f0; }
 
 /* ── Mobile ── */
 @media (max-width: 500px) {
-    #spark-modal { padding: 0; }
-    .spark-app { max-width: 100%; max-height: 100vh; border-radius: 0; }
+    #spark-modal { padding: 0 !important; }
+    .spark-app {
+        max-width: 100% !important;
+        width: 100% !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        border-radius: 0 !important;
+    }
     /* НЕ форсим позицию FAB — пользователь перетаскивает сам. */
 }

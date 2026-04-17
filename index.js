@@ -122,7 +122,8 @@ function injectModal() {
         <div class="spark-modal-backdrop" data-spark-close></div>
         <div class="spark-app" id="spark-modal-body"></div>
     `;
-    document.body.appendChild(modal);
+    // К <html> а не к <body> — см. комментарий у FAB (мобильный body имеет transform).
+    (document.documentElement || document.body).appendChild(modal);
 
     modal.addEventListener('click', (e) => {
         if (e.target.hasAttribute('data-spark-close')) modal.classList.remove('open');
