@@ -17,13 +17,24 @@ function injectFab() {
     fab.id = 'spark-fab';
     fab.type = 'button';
     fab.title = 'Spark (зажми и тащи чтобы передвинуть)';
-    fab.style.right = `${settings.fabPosition?.right ?? 20}px`;
-    fab.style.bottom = `${settings.fabPosition?.bottom ?? 120}px`;
+
+    // Clamp сохранённой позиции к текущему viewport — защита если передвинули
+    // на большом экране, а открыли на маленьком (FAB уезжал за экран).
+    const vw = window.innerWidth || 360;
+    const vh = window.innerHeight || 640;
+    let right = settings.fabPosition?.right ?? 20;
+    let bottom = settings.fabPosition?.bottom ?? 120;
+    right = Math.max(0, Math.min(vw - 56, right));
+    bottom = Math.max(0, Math.min(vh - 90, bottom));
+    fab.style.right = `${right}px`;
+    fab.style.bottom = `${bottom}px`;
+
     fab.innerHTML = `
         <div class="spark-fab-screen"><div class="spark-fab-logo">✦</div></div>
         <div class="spark-fab-hint">Spark</div>
     `;
     document.body.appendChild(fab);
+    console.log(LOG, `FAB создан: right=${right}px bottom=${bottom}px viewport=${vw}x${vh}`);
     updateFabBadge();
     makeFabDraggable(fab);
 }
@@ -192,6 +203,14 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 else init();
 
 window.sparkOpen = openApp;
+window.sparkFabReset = () => {
+    const settings = getSettings();
+    settings.fabPosition = { right: 20, bottom: 120 };
+    import('./state.js').then(m => m.saveSettings());
+    const fab = document.getElementById('spark-fab');
+    if (fab) { fab.style.right = '20px'; fab.style.bottom = '120px'; }
+    console.log(LOG, 'позиция FAB сброшена');
+};
 window.sparkDebug = () => {
     const s = loadState();
     console.log('vibe:', s.vibe);
