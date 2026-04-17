@@ -16,16 +16,69 @@ function injectFab() {
     const fab = document.createElement('button');
     fab.id = 'spark-fab';
     fab.type = 'button';
-    fab.title = 'Spark';
+    fab.title = 'Spark (зажми и тащи чтобы передвинуть)';
     fab.style.right = `${settings.fabPosition?.right ?? 20}px`;
-    fab.style.bottom = `${settings.fabPosition?.bottom ?? 90}px`;
+    fab.style.bottom = `${settings.fabPosition?.bottom ?? 120}px`;
     fab.innerHTML = `
         <div class="spark-fab-screen"><div class="spark-fab-logo">✦</div></div>
         <div class="spark-fab-hint">Spark</div>
     `;
-    fab.addEventListener('click', openApp);
     document.body.appendChild(fab);
     updateFabBadge();
+    makeFabDraggable(fab);
+}
+
+// Перетаскивание: зажать и тащить. Клик (без движения) — открывает приложение.
+function makeFabDraggable(fab) {
+    let startX = 0, startY = 0, origRight = 0, origBottom = 0;
+    let dragging = false, moved = false;
+
+    const onDown = (e) => {
+        const p = e.touches ? e.touches[0] : e;
+        startX = p.clientX; startY = p.clientY;
+        origRight = parseInt(fab.style.right, 10) || 20;
+        origBottom = parseInt(fab.style.bottom, 10) || 120;
+        dragging = true; moved = false;
+        fab.classList.add('spark-fab-dragging');
+        e.preventDefault();
+    };
+    const onMove = (e) => {
+        if (!dragging) return;
+        const p = e.touches ? e.touches[0] : e;
+        const dx = p.clientX - startX;
+        const dy = p.clientY - startY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved = true;
+        // Инвертируем: right уменьшается при движении вправо, bottom — при движении вниз
+        const newRight = Math.max(0, Math.min(window.innerWidth - 56, origRight - dx));
+        const newBottom = Math.max(0, Math.min(window.innerHeight - 90, origBottom - dy));
+        fab.style.right = `${newRight}px`;
+        fab.style.bottom = `${newBottom}px`;
+        e.preventDefault();
+    };
+    const onUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        fab.classList.remove('spark-fab-dragging');
+        if (moved) {
+            const settings = getSettings();
+            settings.fabPosition = {
+                right: parseInt(fab.style.right, 10) || 20,
+                bottom: parseInt(fab.style.bottom, 10) || 120,
+            };
+            import('./state.js').then(m => m.saveSettings());
+        } else {
+            // Это был клик без перетаскивания — открыть приложение
+            openApp();
+        }
+    };
+
+    fab.addEventListener('mousedown', onDown);
+    fab.addEventListener('touchstart', onDown, { passive: false });
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchend', onUp);
+    document.addEventListener('touchcancel', onUp);
 }
 
 function injectModal() {
