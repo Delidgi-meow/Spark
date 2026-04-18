@@ -3,12 +3,121 @@
 // ВСЕ запросы LLM идут через extra API (api.js).
 // ═══════════════════════════════════════════
 
-import { setExtensionPrompt, extension_prompt_types } from '../../../../script.js';
-import { getRoster } from './roster.js';
+import { setExtensionPrompt, extension_prompt_types, user_avatar, getThumbnailUrl } from '../../../../script.js';
+import { getRoster, getCustomAvatar, ensureBoyCard } from './roster.js';
 import { loadState, pushMessage, getSettings, save } from './state.js';
 import { callExtraLLM, isExtraLLMConfigured, generateImage, generateImageViaSD, isImageApiConfigured } from './api.js';
 
 const PROMPT_KEY = 'SPARK_DATING_APP';
+
+// ── Получить дата-URL аватарки активной персоны ST (второй реф для Gemini) ──
+async function getUserAvatarDataUrl() {
+    try {
+        const file = (typeof user_avatar === 'string' && user_avatar) ? user_avatar : null;
+        if (!file) return null;
+        const url = getThumbnailUrl('persona', file);
+        const resp = await fetch(url);
+        if (!resp.ok) return null;
+        const blob = await resp.blob();
+        return await new Promise((resolve) => {
+            const r = new FileReader();
+            r.onloadend = () => resolve(/** @type {string} */(r.result));
+            r.onerror = () => resolve(null);
+            r.readAsDataURL(blob);
+        });
+    } catch { return null; }
+}
+
+// ── Санитайзер NSFW-промта для image-моделей с цензурой (nano-banana, Imagen и т.п.) ──
+// Заменяет явные сексуальные/анатомические термины (EN+RU) и обрезает длину.
+function sanitizeImagePrompt(p) {
+    if (!p) return p;
+    let s = String(p);
+    const map = [
+        // ── EN ──
+        [/\b(nsfw|explicit|nude|naked|topless|bottomless)\b/gi, ''],
+        [/\b(sex|sexual|sexy|erotic|erotica|porn|pornographic|hentai)\b/gi, ''],
+        [/\b(penis|cock|dick|testicles|balls|scrotum)\b/gi, ''],
+        [/\b(vagina|pussy|clit|clitoris|labia)\b/gi, ''],
+        [/\b(breasts?|boobs?|tits|nipples?|areola)\b/gi, ''],
+        [/\b(ass|butt|buttocks|anus|asshole)\b/gi, ''],
+        [/\b(cum|cumshot|semen|sperm|ejaculat\w*)\b/gi, ''],
+        [/\b(blowjob|handjob|fellatio|cunnilingus|masturbat\w*|fingering)\b/gi, ''],
+        [/\b(orgasm|aroused|horny|lust\w*)\b/gi, ''],
+        [/\b(intercourse|penetration|fucking|fuck|fucked|hardcore)\b/gi, ''],
+        [/\b(bdsm|bondage|dominat\w*|submissive|spank\w*|kink\w*)\b/gi, ''],
+        [/\b(loli|shota|underage|child|minor|teen|teenager)\b/gi, 'adult'],
+        // ── RU ──
+        [/\b(голый|голая|голые|обнажённ\w*|обнаженн\w*|раздет\w*)\b/gi, ''],
+        [/\b(секс\w*|эротик\w*|порн\w*|интим\w*|половой\sакт)\b/gi, ''],
+        [/\b(член|хуй|пенис|яички|мошонка)\b/gi, ''],
+        [/\b(вагина|пизда|клитор|вульв\w*)\b/gi, ''],
+        [/\b(грудь|груди|сиськ\w*|сись\w*|соск\w*|сосок)\b/gi, ''],
+        [/\b(жоп\w*|задниц\w*|анус|очко)\b/gi, ''],
+        [/\b(сперм\w*|кончил\w*|кончает|оргазм\w*)\b/gi, ''],
+        [/\b(минет|отсос|куни|мастурбац\w*|дрочит)\b/gi, ''],
+        [/\b(возбужд\w*|похоть|страсть)\b/gi, ''],
+        [/\b(трах\w*|еба\w*|ёба\w*|ебл\w*|секс\w*)\b/gi, ''],
+        [/\b(бдсм|подчин\w*|доминир\w*)\b/gi, ''],
+    ];
+    for (const [re, rep] of map) s = s.replace(re, rep);
+    s = s.replace(/[,\s]{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').trim();
+    // Жёсткое обрезание — длинные NSFW-промпты режутся фильтрами целиком
+    if (s.length > 400) s = s.slice(0, 400);
+    // Художественная обёртка — снижает шанс отказа
+    return `Tasteful artistic portrait photograph, romantic atmosphere, fully clothed, safe-for-work. ${s}`;
+}
+
+// ── Многоуровневый фоллбэк генерации картинки ──
+// Цепочка: ref → no-ref → sanitized no-ref → SD slash.
+// При любой ошибке отказа (IMAGE_REFUSED / safety / blocked / refus) идём на следующий шаг.
+async function generateImageWithFallback(prompt, refAvatar) {
+    const isRefusal = (err) => {
+        const code = (err && /** @type {any} */(err).code) || '';
+        const msg = String((err && /** @type {any} */(err).message) || err || '');
+        return code === 'IMAGE_REFUSED' || /refus|safety|blocked|prohibit|other\)/i.test(msg);
+    };
+    const isHttp = (err) => /http\s*\d{3}|HTTP\s\d{3}|\b\d{3}:/i.test(String((err && /** @type {any} */(err).message) || err || ''));
+
+    // 1) с рефами — аватарка парня + аватарка юзера. Эмпирически: на одном char-рефе
+    // прокси часто кидает IMAGE_OTHER (псевдо-цензура), на паре рефов проходит стабильно.
+    // Юзерская аватарка работает как «эталон лица человека вообще» — модель её НЕ копирует
+    // в результат, потому что промпт говорит про мужской селфи.
+    if (refAvatar) {
+        const userRef = await getUserAvatarDataUrl();
+        const refs = userRef ? [refAvatar, userRef] : [refAvatar];
+        console.log('[Spark] step1 trying WITH refs, count=', refs.length, 'charLen=', String(refAvatar).length, 'userLen=', userRef ? String(userRef).length : 0);
+        try { return await generateImage(prompt, refs); }
+        catch (e) {
+            console.warn('[Spark] step1 refs failed:', /** @type {any} */(e)?.message || e);
+            if (!isRefusal(e) && !isHttp(e)) throw e;
+        }
+    } else {
+        console.log('[Spark] step1 SKIPPED (no ref avatar saved for this boy or useAvatarAsRef=off)');
+    }
+    // 2) без рефа, оригинальный промт
+    try { return await generateImage(prompt, null); }
+    catch (e) {
+        console.warn('[Spark] step2 no-ref failed:', /** @type {any} */(e)?.message || e);
+        if (!isRefusal(e)) {
+            // Сетевая/серверная — пробуем SD как последний шанс и всё
+            try { return await generateImageViaSD(prompt); } catch { throw e; }
+        }
+    }
+    // 3) санитайзенный + укороченный промт без рефа
+    const safe = sanitizeImagePrompt(prompt);
+    if (safe) {
+        try {
+            console.log('[Spark] step3 sanitized prompt, len=', safe.length);
+            return await generateImage(safe, null);
+        } catch (e) {
+            console.warn('[Spark] step3 sanitized failed:', /** @type {any} */(e)?.message || e);
+        }
+    }
+    // 4) SD slash как последний фоллбэк
+    console.log('[Spark] step4 generateImageViaSD');
+    return await generateImageViaSD(safe || prompt);
+}
 
 // ── Инфо о текущей персоне пользователя (как в основной Таверне) ──
 function getUserPersona() {
@@ -66,33 +175,95 @@ export async function generateBoyReply(boyId) {
     const ROSTER = getRoster();
     const boy = ROSTER[boyId];
     if (!boy) return 0;
+    // Гарантируем, что карточка распарсена из лорбука (ленивый парс по требованию)
+    try { await ensureBoyCard(boyId); } catch (e) { console.warn('[Spark] ensureBoyCard before reply failed:', e); }
     const s = loadState();
     const history = (s.messages[boyId] || []).slice(-20);
 
     const persona = getUserPersona();
     const userLabel = persona.name || 'Она';
 
-    const historyText = history.map(m => {
+    const historyText = history.map((m, idx) => {
         const who = m.from === 'user' ? userLabel : boy.name;
         const flag = m.deleted ? ' [потом удалил]' : '';
         const img = m.image ? ' [прислала фото]' : '';
-        return `${who}: ${m.text || ''}${img}${flag}`;
+        // Маркер паузы перед сообщением, если с предыдущего прошло > 1 часа
+        let gap = '';
+        const prev = idx > 0 ? history[idx - 1] : null;
+        if (prev?.ts && m.ts) {
+            const diffMs = m.ts - prev.ts;
+            const hours = Math.floor(diffMs / 3600000);
+            if (hours >= 24) {
+                const days = Math.floor(hours / 24);
+                gap = `--- прошло ${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'} ---\n`;
+            } else if (hours >= 1) {
+                gap = `--- прошло ${hours} ${hours === 1 ? 'час' : hours < 5 ? 'часа' : 'часов'} ---\n`;
+            }
+        }
+        return `${gap}${who}: ${m.text || ''}${img}${flag}`;
     }).join('\n');
 
     const settings = getSettings();
     const includePersonaDesc = settings.includePersonaDescription !== false; // по умолчанию включено
-    const personaBlock = (includePersonaDesc && persona.description)
-        ? `\nО СОБЕСЕДНИЦЕ (${userLabel}) — её анкета в Spark:\n${persona.description}\n`
+    const profile = settings.profile || {};
+    const profileLines = [];
+    if (profile.ageMe) profileLines.push(`возраст: ${profile.ageMe}`);
+    if (profile.lookingFor) profileLines.push(`ищет: ${profile.lookingFor}`);
+    if (profile.extraBio) profileLines.push(`о себе: ${profile.extraBio}`);
+    const profileBlock = profileLines.length ? `Анкета в Spark:\n${profileLines.join('\n')}\n` : '';
+    const personaBlock = ((includePersonaDesc && persona.description) || profileBlock)
+        ? `\nО СОБЕСЕДНИЦЕ (${userLabel}):\n${profileBlock}${(includePersonaDesc && persona.description) ? persona.description : ''}\n`
         : '';
 
-    const prompt = `Ты отыгрываешь ${boy.name} в dating-app Spark. Отвечай СТРОГО по карточке, без smoothing характера.
+    // Если в основном чате ST активный персонаж совпадает с этим парнем —
+    // подливаем последние реплики в промпт (якобы они виделись).
+    const stExcerpt = getMainChatExcerpt(boy.name, 8);
+    const encounterBlock = stExcerpt ? `\nВЫ С ${boy.name.toUpperCase()} ВСТРЕЧАЛИСЬ ВЖИВУЮ (из основного чата):\n${stExcerpt}\n` : '';
 
-КАРТОЧКА:
+    // Собираем всю карточку — отдаём LLM все доп.поля что есть в лорбуке
+    const extraFields = [];
+    if (boy.tags_ui?.length) extraFields.push(`Теги в анкете: ${boy.tags_ui.join(', ')}`);
+    if (boy.distance) extraFields.push(`Дистанция в Spark: ${boy.distance}`);
+    if (boy.redflag) extraFields.push(`Скрытая особенность характера (приватная инфо для отыгрыша): ${boy.redflag}`);
+    if (boy.tags && typeof boy.tags === 'object') {
+        const tagPairs = Object.entries(boy.tags).map(([k, v]) => `${k}:${v}`).join(', ');
+        if (tagPairs) extraFields.push(`Внутренние веса по вайбам: ${tagPairs}`);
+    }
+    // Любые ДРУГИЕ кастомные поля из лорбука (всё кроме служебных)
+    const knownKeys = new Set(['name', 'age', 'distance', 'bio', 'tags_ui', 'redflag', 'tags',
+        'writeStyle', 'styleNote', 'imagePrompt', 'avatarGradient', 'initial', 'id']);
+    for (const [k, v] of Object.entries(boy)) {
+        if (knownKeys.has(k) || v == null || v === '') continue;
+        if (typeof v === 'string') extraFields.push(`${k}: ${v}`);
+        else if (typeof v === 'number' || typeof v === 'boolean') extraFields.push(`${k}: ${v}`);
+        else if (Array.isArray(v) && v.every(x => typeof x === 'string')) extraFields.push(`${k}: ${v.join(', ')}`);
+        else { try { extraFields.push(`${k}: ${JSON.stringify(v)}`); } catch {} }
+    }
+    const extraBlock = extraFields.length ? `\nДОП. ИНФОРМАЦИЯ О ${boy.name.toUpperCase()}:\n${extraFields.join('\n')}\n` : '';
+
+    // Сырое описание из лорбука — это ПЕРВОИСТОЧНИК, всё остальное — экстракт из него
+    // Резолвим макросы ST ({{user}}, {{char}}, {{persona}}, ...) чтобы LLM получила имена, а не литералы.
+    let rawDesc = boy._rawDescription || '';
+    if (rawDesc) {
+        try {
+            const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
+            if (typeof c.substituteParams === 'function') {
+                rawDesc = c.substituteParams(rawDesc);
+            }
+        } catch (e) { /* fallback to raw */ }
+    }
+    const lorebookBlock = rawDesc
+        ? `\nПОЛНОЕ ОПИСАНИЕ ${boy.name.toUpperCase()} (из лорбука — твоя биография, характер, факты. Авторитетный источник):\n${rawDesc}\n`
+        : '';
+
+    const prompt = `Ты отыгрываешь ${boy.name} в dating-app Spark. Отвечай СТРОГО по описанию из лорбука, без smoothing характера. Если в лорбуке что-то сказано о тебе (работа, привычки, внешность, прошлое, что любишь, что бесит) — ты ЭТО ЗНАЕШЬ и можешь органично вплетать в разговор когда к слову.
+${lorebookBlock}
+КАРТОЧКА В SPARK (что видно на твоей анкете):
 Имя: ${boy.name}, ${boy.age} лет
-Био: ${boy.bio}
+Био в анкете: ${boy.bio}
 Стиль письма: ${boy.writeStyle} — ${boy.styleNote || ''}
 Внешность (для фото): ${boy.imagePrompt || '(не задано)'}
-${personaBlock}
+${extraBlock}${personaBlock}${encounterBlock}
 ИСТОРИЯ ПЕРЕПИСКИ:
 ${historyText || `(ещё не переписывались — это твоё первое сообщение после матча в Spark с ${userLabel})`}
 
@@ -102,9 +273,14 @@ ${historyText || `(ещё не переписывались — это твоё 
 
 ВАЖНО: ответ только текст сообщения(й). Без <think>, без reasoning, без комментариев, без «${boy.name}:», без markdown.`;
 
+    // Vision: если ПОСЛЕДНЕЕ сообщение от пользователя — фото, прикрепляем его к запросу.
+    // Картинку шлём только один раз; в дальнейших ответах бот будет помнить её из текстового контекста.
+    const lastMsg = history[history.length - 1];
+    const visionImages = (lastMsg && lastMsg.from === 'user' && lastMsg.image) ? [lastMsg.image] : [];
+
     let raw;
     try {
-        raw = await callExtraLLM(prompt);
+        raw = await callExtraLLM(prompt, visionImages.length ? { images: visionImages } : {});
     } catch (e) {
         console.error('[Spark] Extra API failed:', e);
         return 0;
@@ -149,7 +325,9 @@ ${historyText || `(ещё не переписывались — это твоё 
             // Захватываем boyId+genId в замыкание
             (async () => {
                 try {
-                    const dataUrl = await generateImage(imgPrompt);
+                    const useRef = getSettings().useAvatarAsRef !== false;
+                    const refAvatar = useRef ? (getCustomAvatar(boyId) || null) : null;
+                    const dataUrl = await generateImageWithFallback(imgPrompt, refAvatar);
                     updateGeneratedImage(boyId, genId, { image: dataUrl, _generating: false });
                 } catch (err) {
                     console.warn('[Spark] inline image failed:', err);
@@ -181,6 +359,53 @@ export async function generateAvatar(boyId) {
     return await generateImageViaSD(boy.imagePrompt);
 }
 
+// ── Перегенерация уже отправленной картинки в чате ──
+export async function regenerateChatImage(boyId, msgTs) {
+    const s = loadState();
+    const list = s.messages?.[boyId];
+    if (!list) return;
+    const msg = list.find(m => m && m.ts === Number(msgTs));
+    if (!msg) { console.warn('[Spark] regen: msg не найден', msgTs); return; }
+    const prompt = msg._imgPrompt;
+    if (!prompt) { console.warn('[Spark] regen: у сообщения нет _imgPrompt'); return; }
+    if (!msg._genId) msg._genId = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    msg._generating = true;
+    msg.image = '';
+    save();
+    window.dispatchEvent(new CustomEvent('spark:rerender', { detail: { boyId } }));
+    try {
+        const useRef = getSettings().useAvatarAsRef !== false;
+        const refAvatar = useRef ? (getCustomAvatar(boyId) || null) : null;
+        const dataUrl = await generateImageWithFallback(prompt, refAvatar);
+        updateGeneratedImage(boyId, msg._genId, { image: dataUrl, _generating: false });
+    } catch (err) {
+        console.warn('[Spark] regen failed:', err);
+        updateGeneratedImage(boyId, msg._genId, { image: '', text: `[фото не загрузилось: ${String(err.message || err).slice(0, 80)}]`, _generating: false });
+    }
+}
+
+// ── Достать последние реплики из основного чата ST для парня с таким же именем ──
+function getMainChatExcerpt(boyName, n = 8) {
+    if (!boyName) return '';
+    try {
+        const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
+        const chat = c.chat || [];
+        const name2 = c.name2 || '';
+        // Только если активный персонаж — этот же парень. Иначе бессмысленно.
+        if (!name2 || name2.toLowerCase() !== String(boyName).toLowerCase()) return '';
+        const tail = chat.slice(-n);
+        if (!tail.length) return '';
+        return tail.map(m => {
+            const who = m.is_user ? (c.name1 || 'Я') : (m.name || boyName);
+            const t = String(m.mes || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+            return `${who}: ${t}`;
+        }).filter(l => l.length > 5).join('\n');
+    } catch (e) {
+        console.warn('[Spark] getMainChatExcerpt failed:', e);
+        return '';
+    }
+}
+
 // ── Сводка для основного чата ST ──
 export function syncToMainChat() {
     const settings = getSettings();
@@ -191,18 +416,81 @@ export function syncToMainChat() {
     const ROSTER = getRoster();
     const s = loadState();
 
-    const matches = Object.entries(s.matches).filter(([_, m]) => ['matched', 'cold_one_message', 'matched_silent'].includes(m.status));
-    if (!matches.length && !Object.keys(s.messages).length) {
+    // Если активный персонаж основного чата = один из парней Spark — ВСЕГДА инжектим
+    // ему контекст переписки (даже когда модалка Spark закрыта). Это нужно чтобы
+    // персонаж в основном чате знал что вы только что обсуждали в Spark.
+    let activeBoyId = null;
+    let matchSource = '';
+    try {
+        const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
+        const name2 = (c.name2 || '').toLowerCase();
+        if (name2) {
+            for (const [id, b] of Object.entries(ROSTER)) {
+                if ((b.name || '').toLowerCase() === name2) { activeBoyId = id; matchSource = 'name2'; break; }
+            }
+        }
+    } catch {}
+    // Fallback: если основной персонаж ST НЕ совпадает по имени с парнем
+    // (типично — у тебя один общий чар «Приложение для знакомств», который играет всех),
+    // используем последнего открытого в Spark парня. Этого достаточно чтобы
+    // основной чат знал контекст.
+    if (!activeBoyId && s.openChatBoy && ROSTER[s.openChatBoy]) {
+        activeBoyId = s.openChatBoy;
+        matchSource = 'openChatBoy';
+    }
+
+    // Модалка открыта — добавляем общий обзор Spark (матчи, свайпы и т.д.)
+    const modal = document.getElementById('spark-modal');
+    const isOpen = modal?.classList.contains('open');
+
+    // Если ни активного бой-персонажа, ни открытой модалки — ничего не инжектим.
+    if (!activeBoyId && !isOpen) {
         setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.IN_PROMPT, 0);
         return;
     }
 
-    const lines = [];
-    lines.push('[SPARK APP STATE — что {{user}} делает в приложении знакомств Spark прямо сейчас. Можешь ссылаться на это естественно если разговор зайдёт.]');
+    const matches = Object.entries(s.matches).filter(([_, m]) => ['matched', 'cold_one_message', 'matched_silent'].includes(m.status));
 
-    if (matches.length) {
-        lines.push('Матчи:');
+    const lines = [];
+    lines.push('[SPARK APP STATE — состояние приложения знакомств Spark, в котором сейчас сидит {{user}}.]');
+
+    if (activeBoyId) {
+        const b = ROSTER[activeBoyId];
+        const msgs = s.messages[activeBoyId] || [];
+        const persona = getUserPersona();
+        const userLabel = persona.name || '{{user}}';
+        if (msgs.length) {
+            // Последние 15 — дословно, более старые — кратким саммари по количеству.
+            const total = msgs.length;
+            const recentN = 15;
+            const recent = msgs.slice(-recentN);
+            const olderCount = Math.max(0, total - recentN);
+            lines.push(`ВАЖНО: ты (${b.name}) и ${userLabel} ПАРАЛЛЕЛЬНО переписываетесь в приложении Spark. Ты ОДИН и тот же человек в Spark и здесь. Помни эту переписку и используй её естественно.`);
+            lines.push('');
+            lines.push(`КРИТИЧЕСКИ ВАЖНО: ниже приведена ВСЯ переписка из Spark — это ЕДИНСТВЕННЫЙ источник правды. НЕ ВЫДУМЫВАЙ другие сообщения, которые ${userLabel} якобы тебе писала. Если хочешь сослаться на её слова — цитируй ТОЛЬКО то, что есть в блоке ниже, дословно. Не придумывай несуществующих фраз про «я устала», «ищу мужчину который» и т.п. — если этого НЕТ в блоке, значит этого НЕ БЫЛО.`);
+            lines.push('');
+            if (olderCount > 0) {
+                lines.push(`(До этого фрагмента в Spark было ещё ${olderCount} сообщений — их содержание тебе НЕ дано, не выдумывай.)`);
+            }
+            lines.push(`=== НАЧАЛО ПЕРЕПИСКИ В SPARK (от старых к новым) ===`);
+            for (const m of recent) {
+                const who = m.from === 'user' ? userLabel : b.name;
+                const flag = m.deleted ? ' [потом удалил]' : '';
+                const img = m.image ? ' [прислал(а) фото]' : '';
+                lines.push(`${who}: ${(m.text || '').slice(0, 250)}${img}${flag}`);
+            }
+            lines.push(`=== КОНЕЦ ПЕРЕПИСКИ В SPARK ===`);
+        } else if (s.matches[activeBoyId]) {
+            lines.push(`Вы с ${userLabel} сматчились в Spark, но ещё не переписывались в приложении. НЕ выдумывай несуществующих сообщений.`);
+        }
+    }
+
+    if (isOpen && matches.length) {
+        // Общий обзор — только когда юзер реально сидит в Spark
+        lines.push('');
+        lines.push('Все активные матчи {{user}} в Spark:');
         for (const [id, m] of matches) {
+            if (id === activeBoyId) continue; // про активного уже есть полная переписка выше
             const b = ROSTER[id]; if (!b) continue;
             const msgs = s.messages[id] || [];
             const lastMsg = msgs[msgs.length - 1];
@@ -210,13 +498,19 @@ export function syncToMainChat() {
             const lastInfo = lastMsg ? ` Последнее (${lastMsg.from === 'user' ? '{{user}}' : b.name}): "${(lastMsg.text || '').slice(0, 80)}"` : '';
             lines.push(`• ${b.name} (${b.age}, ${status}, ${msgs.length} сообщ.).${lastInfo}`);
         }
+        const passed = s.swipedIds.filter(id => s.matches[id]?.status === 'passed').map(id => ROSTER[id]?.name).filter(Boolean);
+        if (passed.length) lines.push(`Свайпнула влево: ${passed.join(', ')}.`);
     }
 
-    const passed = s.swipedIds.filter(id => s.matches[id]?.status === 'passed').map(id => ROSTER[id]?.name).filter(Boolean);
-    if (passed.length) lines.push(`Свайпнула влево: ${passed.join(', ')}.`);
+    if (lines.length <= 1) {
+        // Только заголовок без контента — не инжектим.
+        setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.IN_PROMPT, 0);
+        return;
+    }
 
     const text = lines.join('\n');
     setExtensionPrompt(PROMPT_KEY, text, extension_prompt_types.IN_PROMPT, settings.injectDepth || 4);
+    console.log(`[Spark] inject → ${text.length} симв., activeBoy=${activeBoyId} (${matchSource}), depth=${settings.injectDepth || 4}`);
 }
 
 export function clearMainChatInjection() {

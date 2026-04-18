@@ -5,7 +5,7 @@
 
 import { extension_settings } from '../../../extensions.js';
 import { chat_metadata } from '../../../../script.js';
-import { EXT_NAME, getSettings, getBoyMeta, setBoyMeta } from './state.js';
+import { EXT_NAME, getSettings, getBoyMeta, setBoyMeta, getCachedBoyMeta, setCachedBoyMeta } from './state.js';
 import { callExtraLLM, isExtraLLMConfigured } from './api.js';
 
 // Палитра градиентов для placeholder-аватаров
@@ -137,22 +137,24 @@ async function generateBoyCard(rawBoy) {
     const keysLine = rawBoy.rawKeys?.length ? `\nКЛЮЧИ/ТРИГГЕРЫ ЛОРБУКА: ${rawBoy.rawKeys.join(', ')}` : '';
     const prompt = `Проанализируй описание персонажа из лорбука SillyTavern и заполни карточку для dating-app симулятора. КАЖДЫЙ персонаж должен быть УНИКАЛЬНЫМ — не скатывайся в «айтишник / книги / кофе». Используй конкретные детали из описания.
 
+ПРАВИЛО ПРИОРИТЕТА: если в описании ЯВНО указано значение поля (возраст, рост, профессия, имя, конкретные хобби, чёткие черты характера, знаки в внешности и т.п.) — используй ЕГО ДОСЛОВНО, не выдумывай и не «сглаживай». Выдумывать можно ТОЛЬКО то, чего в описании нет.
+
 ИМЯ: ${rawBoy.name}${keysLine}
 
-ОПИСАНИЕ (из поля Content лорбука):
+ОПИСАНИЕ (из поля Content лорбука — это первоисточник):
 ${desc || '(ПУСТО — опирайся только на имя и ключи, будь креативен и конкретен)'}
 
 Верни ТОЛЬКО валидный JSON без markdown, без комментариев, без \`\`\`. Структура:
 {
-  "age": число от 18 до 60,
-  "distance": "X км" (1-15),
-  "bio": "краткое био от первого лица для анкеты, 1-2 предложения. Должно звучать как у ЭТОГО КОНКРЕТНОГО парня — используй его профессию/хобби/странности из описания",
-  "tags_ui": ["тег1","тег2","тег3"] (3-5 видимых тегов на русском — отражают именно ЭТОГО парня, не generic),
-  "redflag": "одно предложение о потенциальном красном флаге, видимом на анкете",
+  "age": число от 18 до 60 (если указан в описании — взять буквально),
+  "distance": "X км" (1-15, выдумай если не указано),
+  "bio": "краткое био от первого лица для анкеты Spark, 1-2 предложения. Должно звучать как у ЭТОГО КОНКРЕТНОГО парня — используй его профессию/хобби/странности из описания. Это то, что сам парень написал бы в Spark, чтобы цеплять — не пересказ описания",
+  "tags_ui": ["тег1","тег2","тег3"] (3-5 видимых тегов на русском — отражают именно ЭТОГО парня, не generic. Если в описании прямо названы интересы — используй их),
+  "redflag": "одно предложение о потенциальном красном флаге, видимом на анкете. Если в описании есть явная проблемная черта — отрази её",
   "tags": {"тег": число от -3 до 3, ...} (5-8 скрытых тегов для скоринга совместимости, английские короткие ключи: comfort, soft, monogamy, casual, dom, sub, control, intensity, art, vulnerability, stability, mature, experienced, danger, ritual, marks, cruelty и т.п.),
-  "writeStyle": один из ${JSON.stringify(WRITE_STYLES)},
-  "styleNote": "1-2 предложения как именно он пишет в чате (объём, темп, эмодзи, тон) — ИНДИВИДУАЛЬНО под него",
-  "imagePrompt": "английский промпт для image-gen модели, 15-25 слов, описывает ВНЕШНОСТЬ именно этого парня из описания, для dating-app фото"
+  "writeStyle": один из ${JSON.stringify(WRITE_STYLES)} (выбери исходя из черт характера в описании),
+  "styleNote": "1-2 предложения как именно он пишет в чате (объём, темп, эмодзи, тон) — ИНДИВИДУАЛЬНО под него на основе описания",
+  "imagePrompt": "английский промпт для image-gen модели, 15-25 слов, описывает ВНЕШНОСТЬ именно этого парня из описания (если внешность не указана — по контексту/возрасту/роли), для dating-app фото"
 }`;
 
     try {
@@ -239,11 +241,14 @@ export async function reloadRoster() {
 
                 for (let i = 0; i < entries.length; i++) {
                     const raw = entryToBoy(entries[i], i);
-                    let meta = getBoyMeta(raw.id);
+                    // Приоритет: глобальный кэш (по лорбуку+хэшу описания) или старый per-chat кэш.
+                    let meta = getCachedBoyMeta(lbName, raw.id, raw.rawDescription) || getBoyMeta(raw.id);
+                    let needsParse = false;
                     if (!meta) {
-                        console.log('[Spark] Генерирую карточку для', raw.name);
-                        meta = await generateBoyCard(raw);
-                        setBoyMeta(raw.id, meta);
+                        // ЛЕНИВО: не дёргаем LLM здесь, отдаём заглушку (heuristicCard синхронный),
+                        // настоящий парс придёт из ensureBoyCard / фоновой очереди.
+                        meta = heuristicCard(raw);
+                        needsParse = true;
                     }
                     newRoster[raw.id] = {
                         ...meta,
@@ -253,6 +258,7 @@ export async function reloadRoster() {
                         _rawDescription: raw.rawDescription,
                         _rawKeys: raw.rawKeys,
                         _lorebookName: lbName,
+                        _needsLLMParse: needsParse,
                     };
                     newOrder.push(raw.id);
                 }
@@ -270,8 +276,58 @@ export async function reloadRoster() {
 
     CURRENT_ROSTER = newRoster;
     CURRENT_ORDER = newOrder;
-    console.log(`[Spark] Ростер обновлён: ${newOrder.length} парней`, newOrder);
+    const pending = newOrder.filter(id => newRoster[id]?._needsLLMParse).length;
+    console.log(`[Spark] Ростер обновлён: ${newOrder.length} парней (новых на парс: ${pending})`);
+    // Фоновый парс — не блокируем UI, дозаполняем карточки по одной
+    if (pending > 0) parseAllPending();
     return newOrder.length;
+}
+
+// ── Ленивый парс одного парня (по требованию). Идемпотентен. ──
+let _parsingNow = new Map(); // id -> Promise (защита от двойного запуска)
+export async function ensureBoyCard(boyId) {
+    const boy = CURRENT_ROSTER[boyId];
+    if (!boy || !boy._needsLLMParse) return;
+    if (_parsingNow.has(boyId)) return _parsingNow.get(boyId);
+    const p = (async () => {
+        try {
+            console.log('[Spark] ensureBoyCard:', boy.name);
+            const meta = await generateBoyCard({
+                name: boy.name,
+                rawDescription: boy._rawDescription,
+                rawKeys: boy._rawKeys,
+            });
+            // Глобальный кэш — живёт между чатами, инвалидируется при изменении описания.
+            setCachedBoyMeta(boy._lorebookName, boyId, boy._rawDescription, meta);
+            // Дублируем в per-chat boyMeta — для обратной совместимости со старыми чатами.
+            setBoyMeta(boyId, meta);
+            Object.assign(boy, meta);
+            delete boy._needsLLMParse;
+            try { window.dispatchEvent(new CustomEvent('spark:rerender')); } catch {}
+        } catch (e) {
+            console.warn('[Spark] ensureBoyCard failed for', boyId, e);
+        } finally {
+            _parsingNow.delete(boyId);
+        }
+    })();
+    _parsingNow.set(boyId, p);
+    return p;
+}
+
+// ── Фоновая очередь: парсит всех непарсенных парней по одному ──
+let _bgRunning = false;
+async function parseAllPending() {
+    if (_bgRunning) return;
+    _bgRunning = true;
+    try {
+        for (const id of CURRENT_ORDER) {
+            if (CURRENT_ROSTER[id]?._needsLLMParse) {
+                await ensureBoyCard(id);
+            }
+        }
+    } finally {
+        _bgRunning = false;
+    }
 }
 
 // ── Кастомные аватары (глобальные) ──
@@ -312,6 +368,7 @@ export async function regenerateBoyCard(boyId) {
     }
 
     const meta = await generateBoyCard({ name: boy.name, rawDescription, rawKeys });
+    setCachedBoyMeta(boy._lorebookName, boyId, rawDescription, meta);
     setBoyMeta(boyId, meta);
     Object.assign(boy, meta);
     boy._rawDescription = rawDescription;

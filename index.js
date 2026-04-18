@@ -174,6 +174,25 @@ function bindEvents() {
     modal.addEventListener('input', (e) => {
         if ((e.target.dataset?.sparkSet || e.target.dataset?.sparkSetDeep) && e.target.type !== 'checkbox' && e.target.tagName !== 'SELECT') {
             handleSettingChange(e.target);
+        } else if (e.target.dataset?.sparkPersonaDesc !== undefined) {
+            // Дебаунс: пишем в активную персону SillyTavern напрямую.
+            clearTimeout(window.__sparkPersonaDescT);
+            const val = e.target.value;
+            window.__sparkPersonaDescT = setTimeout(async () => {
+                try {
+                    const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
+                    const pu = c.powerUserSettings;
+                    const { user_avatar } = await import('../../../../script.js');
+                    if (pu && user_avatar) {
+                        if (!pu.persona_descriptions) pu.persona_descriptions = {};
+                        if (!pu.persona_descriptions[user_avatar]) pu.persona_descriptions[user_avatar] = { description: '', position: 0, depth: 4, role: 0, lorebook: '', connections: [], title: '' };
+                        pu.persona_descriptions[user_avatar].description = val;
+                        // Если активный аватар = текущий, обновим и поле, которое реально идёт в промпт.
+                        pu.persona_description = val;
+                        if (typeof c.saveSettingsDebounced === 'function') c.saveSettingsDebounced();
+                    }
+                } catch (err) { console.warn('[Spark] persona desc save failed:', err); }
+            }, 400);
         }
     });
 
@@ -219,7 +238,7 @@ async function init() {
         syncToMainChat();
     }, 1500);
 
-    console.log(LOG, 'loaded v3.1.0. Console: sparkOpen() / sparkDebug() / sparkReset() / sparkReload() / sparkInjection()');
+    console.log(LOG, 'loaded v3.2.0. Console: sparkOpen() / sparkDebug() / sparkReset() / sparkReload() / sparkInjection()');
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

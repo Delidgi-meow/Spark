@@ -44,8 +44,23 @@ const defaultSettings = () => ({
     // Передавать описание персоны парням (как карточку «о собеседнице»)
     includePersonaDescription: true,
 
+    // Использовать аватарку парня как референс при генерации фото в чате.
+    // Некоторые прокси/модели реф ломают — можно выключить.
+    useAvatarAsRef: true,
+
     avatars: {},                    // {boyId: dataURL}
     fabPosition: { right: 20, bottom: 90 },
+
+    // ГЛОБАЛЬНЫЙ кэш распарсенных лорбук-карточек (один на все чаты).
+    // Ключ: "${lorebookName}::${boyId}". Значение: { ...meta, _hash: хэш сырого описания }.
+    boyMetaCache: {},
+
+    // Моя анкета — что юзер хочет показать парням (плюс к persona ST)
+    profile: {
+        lookingFor: '',     // что ищу
+        ageMe: '',          // возраст
+        extraBio: '',       // доп. о себе
+    },
 });
 
 export function getSettings() {
@@ -80,6 +95,7 @@ const defaultChatState = () => ({
     view: 'swipe',
     openChatBoy: null,
     boyMeta: {},        // кэш сгенерированных карточек: { boyId: {tags, writeStyle, styleNote, imagePrompt, age, ...} }
+    encounters: {},     // {boyName: [ {ts, summary} ] }  — авто-саммари встреч из основного чата ST
 });
 
 export function loadState() {
@@ -130,6 +146,7 @@ export function resetState() {
 }
 
 export function setBoyMeta(boyId, meta) {
+    // ОСТАВЛЕНО ДЛЯ СОВМЕСТИМОСТИ: для встроенного ростера и любых вызовов без лорбука.
     const s = loadState();
     if (!s.boyMeta) s.boyMeta = {};
     s.boyMeta[boyId] = { ...(s.boyMeta[boyId] || {}), ...meta };
@@ -139,4 +156,31 @@ export function setBoyMeta(boyId, meta) {
 export function getBoyMeta(boyId) {
     const s = loadState();
     return s.boyMeta?.[boyId] || null;
+}
+
+// ── ГЛОБАЛЬНЫЙ кэш для распарсенных лорбук-карточек (сохраняется между чатами) ──
+function hashStr(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+    return h.toString(36);
+}
+export function getCachedBoyMeta(lorebookName, boyId, rawDescription) {
+    const settings = getSettings();
+    if (!settings.boyMetaCache) settings.boyMetaCache = {};
+    const key = `${lorebookName || '_'}::${boyId}`;
+    const entry = settings.boyMetaCache[key];
+    if (!entry) return null;
+    const expectedHash = hashStr(String(rawDescription || ''));
+    if (entry._hash !== expectedHash) {
+        // Описание в лорбуке поменялось — кэш устарел.
+        return null;
+    }
+    return entry;
+}
+export function setCachedBoyMeta(lorebookName, boyId, rawDescription, meta) {
+    const settings = getSettings();
+    if (!settings.boyMetaCache) settings.boyMetaCache = {};
+    const key = `${lorebookName || '_'}::${boyId}`;
+    settings.boyMetaCache[key] = { ...meta, _hash: hashStr(String(rawDescription || '')) };
+    saveSettingsDebounced();
 }

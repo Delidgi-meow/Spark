@@ -11,8 +11,9 @@ import {
     getSettings, saveSettings, resetState,
 } from './state.js';
 import { matchScore, isMatch } from './scoring.js';
-import { generateBoyReply, generateFirstMessage, generateAvatar, syncToMainChat, debugSparkInjection } from './engine.js';
+import { generateBoyReply, generateFirstMessage, generateAvatar, syncToMainChat, debugSparkInjection, regenerateChatImage } from './engine.js';
 import { fetchModels, isExtraLLMConfigured, isImageApiConfigured } from './api.js';
+import { user_avatar, getThumbnailUrl } from '../../../../script.js';
 
 // ── SVG ──
 const ICONS = {
@@ -27,9 +28,35 @@ const ICONS = {
     send: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.5 7.5 0 000-2l2.1-1.6-2-3.4L17 7a7.5 7.5 0 00-1.7-1L15 3.5h-4L10.7 6a7.5 7.5 0 00-1.7 1l-2.5-1-2 3.4L6.6 11a7.5 7.5 0 000 2l-2.1 1.6 2 3.4L9 17a7.5 7.5 0 001.7 1l.3 2.5h4l.3-2.5a7.5 7.5 0 001.7-1l2.5 1 2-3.4-2.1-1.6zM13 16a4 4 0 110-8 4 4 0 010 8z"/></svg>',
     paperclip: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 6v11.5a4 4 0 11-8 0V5a2.5 2.5 0 015 0v10.5a1 1 0 11-2 0V6H10v9.5a2.5 2.5 0 005 0V5a4 4 0 10-8 0v12.5a5.5 5.5 0 0011 0V6h-1.5z"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A8 8 0 1019.73 15H17.6a6 6 0 11-1.37-7.2L13 11h7V4l-2.35 2.35z"/></svg>',
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hhmm = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+// Время сообщения HH:MM из ts (мс)
+const formatMsgTime = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+// Подпись-разделитель даты: «сегодня» / «вчера» / «12 апр» / «12 апр 2025»
+const formatMsgDate = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const sameYear = d.getFullYear() === now.getFullYear();
+    const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+    if (dayDiff === 0) return 'сегодня';
+    if (dayDiff === 1) return 'вчера';
+    const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    return `${d.getDate()} ${months[d.getMonth()]}${sameYear ? '' : ' ' + d.getFullYear()}`;
+};
+const sameDay = (a, b) => {
+    if (!a || !b) return false;
+    const x = new Date(a), y = new Date(b);
+    return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
 const relTime = (ts) => {
     if (!ts) return '';
     const d = Math.floor((Date.now() - ts) / 60000);
@@ -78,6 +105,7 @@ function shell(bodyHTML, activeTab = 'swipe', extraClass = '') {
     <div class="spark-tabs">
         <div class="spark-tab ${activeTab === 'swipe' ? 'active' : ''}" data-spark-action="view-swipe">${ICONS.flame} Открыть</div>
         <div class="spark-tab ${activeTab === 'matches' || activeTab === 'chat' ? 'active' : ''}" data-spark-action="view-matches">${ICONS.chat} Чаты${unreadBadge()}</div>
+        <div class="spark-tab ${activeTab === 'me' ? 'active' : ''}" data-spark-action="view-me" title="Моя анкета">${ICONS.user}</div>
         <div class="spark-tab ${activeTab === 'settings' ? 'active' : ''}" data-spark-action="view-settings">${ICONS.gear}</div>
     </div>
     <div class="spark-body ${extraClass}">${bodyHTML}</div>
@@ -240,14 +268,32 @@ function viewChat(boyId) {
     const s = loadState();
     const msgs = s.messages[boyId] || [];
 
-    const msgHTML = msgs.map(m => {
+    const msgHTML = msgs.map((m, idx) => {
         const cls = m.from === 'user' ? 'spark-msg spark-msg-user' : 'spark-msg spark-msg-boy';
         const delCls = m.deleted ? ' spark-msg-deleted' : '';
         let imgHTML = '';
-        if (m.image) imgHTML = `<img src="${esc(m.image)}" class="spark-msg-image" alt="image" data-spark-action="zoom-image" data-spark-src="${esc(m.image)}">`;
+        if (m.image) {
+            const regenBtn = m.from === 'boy' && m._imgPrompt
+                ? `<button class="spark-msg-image-regen" data-spark-action="regen-image" data-spark-boy="${boyId}" data-spark-msgts="${m.ts}" title="сгенерировать заново">${ICONS.refresh}</button>`
+                : '';
+            imgHTML = `<div class="spark-msg-image-wrap">
+                <img src="${esc(m.image)}" class="spark-msg-image" alt="image" data-spark-action="zoom-image" data-spark-src="${esc(m.image)}">
+                ${regenBtn}
+            </div>`;
+        }
         else if (m._generating) imgHTML = `<div class="spark-msg-image spark-msg-image-loading">📷 генерируется…</div>`;
         const txtHTML = m.text ? `<div class="spark-msg-text">${esc(m.text)}</div>` : '';
-        return `<div class="${cls}${delCls}">${imgHTML}${txtHTML}</div>`;
+        // Если фото не загрузилось (есть _imgPrompt но image пуст и не _generating) — показать кнопку "повторить"
+        const failedRegen = (m.from === 'boy' && m._imgPrompt && !m.image && !m._generating)
+            ? `<button class="spark-msg-image-regen spark-msg-image-regen-failed" data-spark-action="regen-image" data-spark-boy="${boyId}" data-spark-msgts="${m.ts}" title="повторить генерацию">${ICONS.refresh}</button>`
+            : '';
+        // Время сообщения + дата-разделитель если новый день
+        const prev = idx > 0 ? msgs[idx - 1] : null;
+        const dateSep = (!prev || !sameDay(prev.ts, m.ts))
+            ? `<div class="spark-msg-date-sep">${formatMsgDate(m.ts)}</div>`
+            : '';
+        const timeHTML = m.ts ? `<div class="spark-msg-time">${formatMsgTime(m.ts)}</div>` : '';
+        return `${dateSep}<div class="${cls}${delCls}">${imgHTML}${txtHTML}${timeHTML}${failedRegen}</div>`;
     }).join('');
 
     const typing = s.__typing === boyId ? `<div class="spark-msg spark-msg-boy spark-typing"><span></span><span></span><span></span></div>` : '';
@@ -256,8 +302,8 @@ function viewChat(boyId) {
     <div class="spark-chat">
         <div class="spark-chat-header">
             <button class="spark-chat-back" data-spark-action="view-matches">${ICONS.back}</button>
-            ${avatarHTML(boyId, boy, 40)}
-            <div class="spark-chat-header-body">
+            <div class="spark-chat-header-avatar" data-spark-action="view-profile" data-spark-boy="${boyId}" title="открыть анкету" style="cursor:pointer">${avatarHTML(boyId, boy, 40)}</div>
+            <div class="spark-chat-header-body" data-spark-action="view-profile" data-spark-boy="${boyId}" style="cursor:pointer">
                 <div class="spark-chat-name">${esc(boy.name)}, ${boy.age}</div>
                 <div class="spark-chat-status">● онлайн</div>
             </div>
@@ -411,6 +457,11 @@ function viewSettings() {
             <span>Negative prompt (если API поддерживает)</span>
             <textarea class="spark-set-input" data-spark-set="imageNegativePrompt" rows="2" placeholder="напр. cartoon, anime, deformed, extra fingers, blurry, low quality, watermark">${esc(settings.imageNegativePrompt || '')}</textarea>
         </label>
+        <label class="spark-set-field row">
+            <input type="checkbox" data-spark-set="useAvatarAsRef" ${settings.useAvatarAsRef !== false ? 'checked' : ''}>
+            <span>Использовать аватарку парня как референс при генерации фото в чате</span>
+        </label>
+        <div class="spark-set-hint">Если фото перестали генериться после включения — отключи. Не все модели/прокси умеют принимать reference image.</div>
 
         <h3 class="spark-set-section">Синхронизация с основным чатом</h3>
         <label class="spark-set-field row">
@@ -433,6 +484,101 @@ function viewSettings() {
     </div>`, 'settings');
 }
 
+// ── Профиль парня ──
+function viewProfile(boyId) {
+    const ROSTER = getRoster();
+    const boy = ROSTER[boyId];
+    if (!boy) return viewMatches();
+    const s = loadState();
+    const msgs = s.messages[boyId] || [];
+    const match = s.matches[boyId] || {};
+    const tags = (boy.tags_ui || []).map(t => `<span class="spark-tag">${esc(t)}</span>`).join('');
+    const statusLabel = match.status === 'matched' ? 'матч ✦' : match.status === 'cold_one_message' ? 'отвечает холодно' : match.status === 'matched_silent' ? 'молчит' : (match.status || '—');
+    return shell(`
+    <div class="spark-profile">
+        <div class="spark-profile-header">
+            <button class="spark-chat-back" data-spark-action="back-to-chat">${ICONS.back}</button>
+            <span class="spark-profile-h-title">Анкета</span>
+        </div>
+        <div class="spark-profile-photo">${avatarHTML(boyId, boy, 'full')}
+            <div class="spark-photo-overlay"></div>
+            <div class="spark-name-row">
+                <h2 class="spark-name">${esc(boy.name)}<span class="spark-age">, ${boy.age}</span></h2>
+                <div class="spark-meta">${ICONS.pin} ${esc(boy.distance || '')}</div>
+            </div>
+        </div>
+        <div class="spark-info">
+            <p class="spark-bio">${esc(boy.bio || '')}</p>
+            <div class="spark-tags">${tags}</div>
+            ${boy.redflag ? `<div class="spark-redflag">${ICONS.warn}<span>${esc(boy.redflag)}</span></div>` : ''}
+            <div class="spark-profile-stats">
+                <div><b>Стиль письма:</b> ${esc(boy.writeStyle || '—')}</div>
+                ${boy.styleNote ? `<div><b>Заметки:</b> ${esc(boy.styleNote)}</div>` : ''}
+                <div><b>Сообщений в Spark:</b> ${msgs.length}</div>
+                <div><b>Статус:</b> ${esc(statusLabel)}</div>
+            </div>
+            <div class="spark-profile-actions">
+                <button class="spark-match-btn primary" data-spark-action="open-chat" data-spark-boy="${boyId}">Открыть чат</button>
+                <button class="spark-match-btn secondary" data-spark-action="gen-avatar" data-spark-boy="${boyId}">Перегенерировать фото</button>
+            </div>
+        </div>
+    </div>`, 'chat', 'spark-body-fill');
+}
+
+// ── Моя анкета ──
+function viewMe() {
+    const settings = getSettings();
+    const profile = settings.profile || {};
+    let personaName = 'User', personaDesc = '', avatarUrl = '';
+    try {
+        const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
+        personaName = c.name1 || 'User';
+        if (typeof c.substituteParams === 'function') {
+            const sub = c.substituteParams('{{persona}}');
+            if (sub && sub !== '{{persona}}') personaDesc = sub;
+        }
+        // Активная персона ST: filename в user_avatar (импортнут из script.js).
+        // Путь: /thumbnail?type=persona&file=<file> (берёт из data/<user>/thumbnails/persona/).
+        const avatarFile = (typeof user_avatar === 'string' && user_avatar) ? user_avatar : null;
+        if (avatarFile) {
+            avatarUrl = getThumbnailUrl('persona', avatarFile);
+        }
+    } catch (e) { console.warn('[Spark] viewMe avatar:', e); }
+    const avatarBlock = avatarUrl
+        ? `<div class="spark-me-avatar" style="background:#000 center/cover no-repeat url('${esc(avatarUrl)}')"></div>`
+        : `<div class="spark-me-avatar spark-me-avatar-fallback">${esc((personaName || '?')[0])}</div>`;
+
+    return shell(`
+    <div class="spark-settings spark-me">
+        <div class="spark-me-top">
+            ${avatarBlock}
+            <div class="spark-me-top-info">
+                <div class="spark-me-name">${esc(personaName)}</div>
+                <div class="spark-set-hint" style="margin:0">из активной персоны SillyTavern</div>
+            </div>
+        </div>
+
+        <h3 class="spark-set-section">Описание (из персоны ST)</h3>
+        <div class="spark-set-hint">Редактирует сразу описание активной персоны SillyTavern (тоже видно в User Settings &rarr; Persona).</div>
+        <textarea class="spark-set-input spark-me-desc-edit" data-spark-persona-desc rows="6" placeholder="персона без описания. задай здесь или в ST → User Settings → Persona.">${esc(personaDesc || '')}</textarea>
+
+        <h3 class="spark-set-section">Анкета в Spark</h3>
+        <div class="spark-set-hint">Эти поля видят парни в дополнение к описанию персоны.</div>
+        <label class="spark-set-field">
+            <span>Возраст</span>
+            <input type="text" class="spark-set-input" data-spark-set-deep="profile.ageMe" value="${esc(profile.ageMe || '')}" placeholder="напр. 24">
+        </label>
+        <label class="spark-set-field">
+            <span>Кого / что ищу</span>
+            <textarea class="spark-set-input" data-spark-set-deep="profile.lookingFor" rows="2" placeholder="напр. серьёзные отношения; дружбу; что-то лёгкое">${esc(profile.lookingFor || '')}</textarea>
+        </label>
+        <label class="spark-set-field">
+            <span>Дополнительно о себе</span>
+            <textarea class="spark-set-input" data-spark-set-deep="profile.extraBio" rows="3" placeholder="хобби, что цепляет, что бесит">${esc(profile.extraBio || '')}</textarea>
+        </label>
+    </div>`, 'me');
+}
+
 // ── Render ──
 export function render() {
     const root = document.getElementById('spark-modal-body');
@@ -440,6 +586,8 @@ export function render() {
     const s = loadState();
     let html;
     if (s.view === 'settings') html = viewSettings();
+    else if (s.view === 'me') html = viewMe();
+    else if (s.view === 'profile' && s.openChatBoy) html = viewProfile(s.openChatBoy);
     else if (s.view === 'chat' && s.openChatBoy) html = viewChat(s.openChatBoy);
     else if (s.view === 'matches') html = viewMatches();
     else if (s.view === 'match-screen' && s._pendingMatch) html = viewMatch(s._pendingMatch.boyId, s._pendingMatch.score);
@@ -475,21 +623,45 @@ function fileToDataURL(file) {
 }
 
 function openImageZoom(src) {
-    let overlay = document.getElementById('spark-image-zoom');
-    if (overlay) overlay.remove();
-    overlay = document.createElement('div');
-    overlay.id = 'spark-image-zoom';
+    // Паттерн взят из sillyimages openFullscreenViewer:
+    // 100vw/100vh, fit/zoom toggle по тапу, отдельный touchend на close с preventDefault.
+    const old = document.getElementById('spark-fs-overlay');
+    if (old) old.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'spark-fs-overlay';
+    overlay.className = 'spark-fs-fit';
     overlay.innerHTML = `
-        <button class="spark-zoom-close" type="button" aria-label="закрыть">✕</button>
-        <img src="${src}" class="spark-zoom-img" alt="zoomed">
+        <div class="spark-fs-scroll">
+            <img src="${src}" class="spark-fs-image" alt="zoomed">
+        </div>
+        <button class="spark-fs-close" type="button" aria-label="закрыть">✕</button>
     `;
-    const close = () => overlay.remove();
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay || e.target.classList.contains('spark-zoom-close')) close();
-    });
-    const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+    const close = () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', onKey);
-    document.body.appendChild(overlay);
+
+    const img = overlay.querySelector('.spark-fs-image');
+    img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        overlay.classList.toggle('spark-fs-fit');
+        overlay.classList.toggle('spark-fs-zoom');
+    });
+
+    overlay.addEventListener('click', (e) => {
+        // клик мимо картинки и кнопки — закрыть
+        if (e.target === overlay || e.target.classList.contains('spark-fs-scroll')) close();
+    });
+
+    const closeBtn = overlay.querySelector('.spark-fs-close');
+    closeBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); close(); });
+    // На мобиле без этого кнопка не срабатывает (паттерн sillyimages)
+    closeBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); close(); });
+
+    // Прямо в documentElement — чтобы transform на body не сломал position:fixed на мобиле.
+    (document.documentElement || document.body).appendChild(overlay);
 }
 
 async function resizeImage(dataUrl, maxSize = 800) {
@@ -581,6 +753,23 @@ export async function handleAction(action, boyId, evt) {
     else if (action === 'view-matches') { s.view = 'matches'; s.openChatBoy = null; delete s._pendingMatch; save(); render(); }
     else if (action === 'view-swipe')   { s.view = 'swipe';   s.openChatBoy = null; delete s._pendingMatch; save(); render(); }
     else if (action === 'view-settings'){ s.view = 'settings'; save(); render(); }
+    else if (action === 'view-me')      { s.view = 'me'; save(); render(); }
+    else if (action === 'view-profile') {
+        if (!boyId) return;
+        s.view = 'profile'; s.openChatBoy = boyId; save(); render();
+    }
+    else if (action === 'back-to-chat') {
+        if (s.openChatBoy) { s.view = 'chat'; save(); render(); }
+        else { s.view = 'matches'; save(); render(); }
+    }
+    else if (action === 'regen-image') {
+        if (!boyId) return;
+        const el = evt?.target?.closest?.('[data-spark-msgts]');
+        const ts = el?.getAttribute('data-spark-msgts');
+        if (!ts) return;
+        try { await regenerateChatImage(boyId, ts); }
+        catch (e) { console.error('[Spark] regen-image failed:', e); }
+    }
     else if (action === 'send-msg') {
         if (evt) evt.preventDefault();
         if (!boyId) return;
@@ -681,7 +870,10 @@ export async function handleFileInput(input) {
         const boyId = input.dataset.sparkAvatarUpload;
         const file = input.files?.[0]; if (!file) return;
         const dataUrl = await fileToDataURL(file);
-        const small = await resizeImage(dataUrl, 400);
+        // 1024px — чтобы аватарка работала как полноценный character reference
+        // в Gemini/nano-banana (sillyimages шлёт оригинал с диска ST такого же размера).
+        // Маленькие refs <= 400px часто триггерят IMAGE_OTHER refusal на прокси.
+        const small = await resizeImage(dataUrl, 1024);
         setCustomAvatar(boyId, small); saveSettings(); render();
     }
 }
