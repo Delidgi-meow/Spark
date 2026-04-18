@@ -156,6 +156,34 @@ function bindEvents() {
         handleAction(el.getAttribute('data-spark-action'), el.getAttribute('data-spark-boy'), e);
     });
 
+    // ── Дублирующий путь именно для regen-кнопки на мобилках ──
+    // На некоторых мобильных браузерах click внутри scrollable области теряется,
+    // если рядом есть зум по тапу на картинку. Используем pointerup + touchstart-tracking
+    // чтобы гарантированно отделить тап от скролла.
+    let touchTrack = null;
+    modal.addEventListener('touchstart', (e) => {
+        const t = e.touches[0];
+        const btn = e.target.closest?.('.spark-msg-image-regen');
+        touchTrack = btn ? { btn, x: t.clientX, y: t.clientY, moved: false } : null;
+    }, { passive: true });
+    modal.addEventListener('touchmove', (e) => {
+        if (!touchTrack) return;
+        const t = e.touches[0];
+        if (Math.abs(t.clientX - touchTrack.x) > 8 || Math.abs(t.clientY - touchTrack.y) > 8) {
+            touchTrack.moved = true;
+        }
+    }, { passive: true });
+    modal.addEventListener('touchend', (e) => {
+        if (!touchTrack) return;
+        const tracked = touchTrack;
+        touchTrack = null;
+        if (tracked.moved) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const boyId = tracked.btn.getAttribute('data-spark-boy');
+        handleAction('regen-image', boyId, { target: tracked.btn, preventDefault() {}, stopPropagation() {} });
+    }, { passive: false });
+
     modal.addEventListener('submit', (e) => {
         const el = e.target.closest('[data-spark-action]');
         if (!el) return;
