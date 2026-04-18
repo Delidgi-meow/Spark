@@ -276,8 +276,16 @@ export async function reloadRoster() {
 
     CURRENT_ROSTER = newRoster;
     CURRENT_ORDER = newOrder;
+    // Фильтр скрытых юзером парней — удаляем и из ростера, и из порядка свайпов.
+    const hidden = new Set(getSettings().hiddenBoys || []);
+    if (hidden.size) {
+        for (const id of [...Object.keys(CURRENT_ROSTER)]) {
+            if (hidden.has(id)) delete CURRENT_ROSTER[id];
+        }
+        CURRENT_ORDER = CURRENT_ORDER.filter(id => !hidden.has(id));
+    }
     const pending = newOrder.filter(id => newRoster[id]?._needsLLMParse).length;
-    console.log(`[Spark] Ростер обновлён: ${newOrder.length} парней (новых на парс: ${pending})`);
+    console.log(`[Spark] Ростер обновлён: ${CURRENT_ORDER.length} парней (скрыто: ${hidden.size}, новых на парс: ${pending})`);
     // Фоновый парс — не блокируем UI, дозаполняем карточки по одной
     if (pending > 0) parseAllPending();
     return newOrder.length;
@@ -341,6 +349,31 @@ export function setCustomAvatar(boyId, dataUrl) {
 }
 export function clearCustomAvatar(boyId) {
     if (extension_settings?.[EXT_NAME]?.avatars) delete extension_settings[EXT_NAME].avatars[boyId];
+}
+
+// ── Скрытие парня из ростера (не удаляет запись лорбука, только прячет в Spark) ──
+export function hideBoy(boyId) {
+    const s = extension_settings[EXT_NAME];
+    if (!s) return;
+    if (!Array.isArray(s.hiddenBoys)) s.hiddenBoys = [];
+    if (!s.hiddenBoys.includes(boyId)) s.hiddenBoys.push(boyId);
+    // Чистим аватар чтобы при возврате в ростер сгенерился новый
+    if (s.avatars) delete s.avatars[boyId];
+    // Чистим из текущего ростера прямо сейчас, без перезагрузки
+    delete CURRENT_ROSTER[boyId];
+    CURRENT_ORDER = CURRENT_ORDER.filter(id => id !== boyId);
+}
+export function unhideBoy(boyId) {
+    const s = extension_settings[EXT_NAME];
+    if (!s || !Array.isArray(s.hiddenBoys)) return;
+    s.hiddenBoys = s.hiddenBoys.filter(id => id !== boyId);
+}
+export function isHidden(boyId) {
+    const list = extension_settings?.[EXT_NAME]?.hiddenBoys;
+    return Array.isArray(list) && list.includes(boyId);
+}
+export function getHiddenBoys() {
+    return [...(extension_settings?.[EXT_NAME]?.hiddenBoys || [])];
 }
 
 // Принудительная перегенерация карточки. Перечитываем запись из лорбука заново

@@ -51,6 +51,10 @@ const defaultSettings = () => ({
     avatars: {},                    // {boyId: dataURL}
     fabPosition: { right: 20, bottom: 90 },
 
+    // Скрытые из ростера id (юзер удалил вручную). Глобально, не per-chat,
+    // чтобы скрытие не отменялось при перезагрузке лорбука.
+    hiddenBoys: [],
+
     // ГЛОБАЛЬНЫЙ кэш распарсенных лорбук-карточек (один на все чаты).
     // Ключ: "${lorebookName}::${boyId}". Значение: { ...meta, _hash: хэш сырого описания }.
     boyMetaCache: {},

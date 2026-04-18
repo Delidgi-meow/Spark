@@ -143,6 +143,36 @@ function getUserPersona() {
     }
 }
 
+// Обновить ЛЮБОЕ сообщение по timestamp.
+function updateMessageByTs(boyId, ts, patch) {
+    const s = loadState();
+    const list = s.messages?.[boyId];
+    if (!list) return;
+    const msg = list.find(m => m && m.ts === Number(ts));
+    if (!msg) return;
+    Object.assign(msg, patch);
+    save();
+    window.dispatchEvent(new CustomEvent('spark:rerender', { detail: { boyId } }));
+}
+
+// Получить короткое описание фото юзера через vision-LLM. Сохраняется в msg._imgCaption,
+// чтобы бот помнил что было на фото даже через много сообщений (vision подмешивается
+// только к последнему фото; остальные превращаются в текстовый маркер).
+export async function captionUserImage(boyId, msgTs, dataUrl) {
+    if (!dataUrl || !isExtraLLMConfigured()) return;
+    const captionPrompt = 'Опиши это фото ОДНИМ коротким предложением на русском (максимум 20 слов): что/кто на фото, поза, одежда, обстановка, настроение. Без вступлений, без "На фото изображено", сразу описание.';
+    try {
+        const raw = await callExtraLLM(captionPrompt, { images: [dataUrl], maxTokens: 120, temperature: 0.4 });
+        const caption = cleanLLMOutput(raw).replace(/^["«]|["»]$/g, '').trim().slice(0, 200);
+        if (caption) {
+            updateMessageByTs(boyId, msgTs, { _imgCaption: caption });
+            console.log(`[Spark] caption saved for msg ${msgTs}: "${caption}"`);
+        }
+    } catch (e) {
+        console.warn('[Spark] captionUserImage failed:', e);
+    }
+}
+
 // Обновить уже сохранённое сообщение по _genId (нужно потому что pushMessage делает копию через spread).
 function updateGeneratedImage(boyId, genId, patch) {
     const s = loadState();
@@ -186,7 +216,16 @@ export async function generateBoyReply(boyId) {
     const historyText = history.map((m, idx) => {
         const who = m.from === 'user' ? userLabel : boy.name;
         const flag = m.deleted ? ' [потом удалил]' : '';
-        const img = m.image ? ' [прислала фото]' : '';
+        // Описание фото: для юзера — _imgCaption (сохранённый caption от vision);
+        // для парня — _imgPrompt (английский промпт генерации).
+        let img = '';
+        if (m.image || m._imgPrompt) {
+            if (m.from === 'user') {
+                img = m._imgCaption ? ` [прислала фото: ${m._imgCaption}]` : ' [прислала фото]';
+            } else {
+                img = m._imgPrompt ? ` [прислал фото: ${m._imgPrompt}]` : ' [прислал фото]';
+            }
+        }
         // Маркер паузы перед сообщением, если с предыдущего прошло > 1 часа
         let gap = '';
         const prev = idx > 0 ? history[idx - 1] : null;

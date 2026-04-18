@@ -4,14 +4,14 @@
 
 import {
     getRoster, getSwipeOrder, getCustomAvatar, setCustomAvatar, clearCustomAvatar,
-    reloadRoster, regenerateBoyCard,
+    reloadRoster, regenerateBoyCard, hideBoy,
 } from './roster.js';
 import {
     loadState, save, bumpVibe, setMatch, getNextBoy, pushMessage, markRead,
     getSettings, saveSettings, resetState,
 } from './state.js';
 import { matchScore, isMatch } from './scoring.js';
-import { generateBoyReply, generateFirstMessage, generateAvatar, syncToMainChat, debugSparkInjection, regenerateChatImage } from './engine.js';
+import { generateBoyReply, generateFirstMessage, generateAvatar, syncToMainChat, debugSparkInjection, regenerateChatImage, captionUserImage } from './engine.js';
 import { fetchModels, isExtraLLMConfigured, isImageApiConfigured } from './api.js';
 import { user_avatar, getThumbnailUrl } from '../../../../script.js';
 
@@ -349,6 +349,7 @@ function viewSettings() {
             <button class="spark-set-btn small" data-spark-action="gen-avatar" data-spark-boy="${id}">Generate</button>
             <button class="spark-set-btn small" data-spark-action="regen-card" data-spark-boy="${id}" title="перегенерировать карточку через extra LLM">⟳</button>
             ${has ? `<button class="spark-set-btn small danger" data-spark-action="clear-avatar" data-spark-boy="${id}">×</button>` : ''}
+            <button class="spark-set-btn small danger" data-spark-action="hide-boy" data-spark-boy="${id}" title="убрать из Spark (запись лорбука останется)">🗑</button>
         </div>`;
     }).join('') || '<div class="spark-set-hint">Ростер пуст. Привяжи лорбук и нажми «Перезагрузить».</div>';
 
@@ -842,6 +843,23 @@ export async function handleAction(action, boyId, evt) {
         if (!boyId) return;
         clearCustomAvatar(boyId); saveSettings(); render();
     }
+    else if (action === 'hide-boy') {
+        if (!boyId) return;
+        const ROSTER = getRoster();
+        const name = ROSTER[boyId]?.name || boyId;
+        if (!confirm(`Убрать ${name} из Spark? Запись лорбука останется, но в приложении он больше не появится. Переписка и матч будут удалены.`)) return;
+        hideBoy(boyId);
+        // Чистим per-chat: матч, свайпы, сообщения, выбранный чат.
+        const st = loadState();
+        delete st.matches?.[boyId];
+        delete st.messages?.[boyId];
+        if (st.swipedIds) st.swipedIds = st.swipedIds.filter(id => id !== boyId);
+        if (st.openChatBoy === boyId) { st.openChatBoy = null; st.view = 'matches'; }
+        if (st.currentBoy === boyId) st.currentBoy = null;
+        save();
+        saveSettings();
+        updateFabBadge(); render(); syncToMainChat();
+    }
     else if (action === 'show-injection') {
         const data = debugSparkInjection();
         alert('Что Spark передаёт основному боту (см. также консоль F12):\n\n' + JSON.stringify(data, null, 2));
@@ -858,10 +876,15 @@ export async function handleFileInput(input) {
         const file = input.files?.[0]; if (!file) return;
         const dataUrl = await fileToDataURL(file);
         const small = await resizeImage(dataUrl);
-        pushMessage(boyId, { from: 'user', image: small, text: '' });
+        const ts = Date.now();
+        pushMessage(boyId, { from: 'user', image: small, text: '', ts });
         const s = loadState();
         s.__typing = boyId; save();
         render();
+        // Параллельно запускаем сохранение описания фото — чтобы бот в будущих ходах
+        // помнил что это было за фото (не блокируем быстрый ответ — vision в generateBoyReply
+        // и так видит фото напрямую).
+        captionUserImage(boyId, ts, small).catch(e => console.warn('[Spark] caption fire-and-forget failed:', e));
         try { await generateBoyReply(boyId); } catch (e) { console.error(e); }
         s.__typing = null; save();
         render();
