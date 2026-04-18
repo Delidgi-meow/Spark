@@ -215,10 +215,13 @@ export async function generateBoyReply(boyId) {
         ? `\nО СОБЕСЕДНИЦЕ (${userLabel}):\n${profileBlock}${(includePersonaDesc && persona.description) ? persona.description : ''}\n`
         : '';
 
-    // Если в основном чате ST активный персонаж совпадает с этим парнем —
-    // подливаем последние реплики в промпт (якобы они виделись).
+    // Подмешиваем последние реплики из основного чата ST — это «вторая реальность»
+    // того же парня (живая встреча, телефонный разговор, что угодно — определяется
+    // самим основным чатом). Не предполагаем формат: пусть LLM сама поймёт по тексту.
     const stExcerpt = getMainChatExcerpt(boy.name, 8);
-    const encounterBlock = stExcerpt ? `\nВЫ С ${boy.name.toUpperCase()} ВСТРЕЧАЛИСЬ ВЖИВУЮ (из основного чата):\n${stExcerpt}\n` : '';
+    const encounterBlock = stExcerpt
+        ? `\nВЫ С ${userLabel.toUpperCase()} УЖЕ ОБЩАЛИСЬ ВНЕ SPARK (это происходит/произошло параллельно с перепиской — например, по телефону, в видеозвонке, на встрече или ещё как-то; характер контакта понимай из самого текста ниже, не выдумывай). Это ТЫ (${boy.name}) и ${userLabel}, та же пара, тот же контекст:\n${stExcerpt}\n`
+        : '';
 
     // Собираем всю карточку — отдаём LLM все доп.поля что есть в лорбуке
     const extraFields = [];
@@ -390,9 +393,18 @@ function getMainChatExcerpt(boyName, n = 8) {
     try {
         const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
         const chat = c.chat || [];
-        const name2 = c.name2 || '';
-        // Только если активный персонаж — этот же парень. Иначе бессмысленно.
-        if (!name2 || name2.toLowerCase() !== String(boyName).toLowerCase()) return '';
+        if (!chat.length) return '';
+        const name2 = (c.name2 || '').toLowerCase();
+        const ROSTER = getRoster();
+        // Если name2 явно совпадает с другим парнем из ростера — пропускаем
+        // (значит юзер сейчас отыгрывает не этого парня, а кого-то другого).
+        if (name2 && name2 !== String(boyName).toLowerCase()) {
+            for (const b of Object.values(ROSTER)) {
+                if ((b.name || '').toLowerCase() === name2) return '';
+            }
+            // name2 не совпал ни с одним парнем из ростера → это универсальный
+            // персонаж («Приложение для знакомств»), играющий всех. Берём excerpt.
+        }
         const tail = chat.slice(-n);
         if (!tail.length) return '';
         return tail.map(m => {
@@ -406,12 +418,56 @@ function getMainChatExcerpt(boyName, n = 8) {
     }
 }
 
+// ── Угадать активного парня из последних сообщений основного чата ──
+// Сканируем хвост чата: чьё имя (или часть имени) чаще/свежее упоминается —
+// тот и есть «текущий» парень в основном чате.
+function detectBoyFromMainChat(lookback = 12) {
+    try {
+        const ROSTER = getRoster();
+        const ids = Object.keys(ROSTER);
+        if (!ids.length) return null;
+        const c = (typeof SillyTavern?.getContext === 'function') ? SillyTavern.getContext() : {};
+        const chat = c.chat || [];
+        if (!chat.length) return null;
+        const tail = chat.slice(-lookback);
+        // Собираем варианты имён (полное + первое слово) для каждого парня
+        const variants = ids.map(id => {
+            const name = String(ROSTER[id].name || '').trim();
+            if (!name) return null;
+            const parts = name.split(/\s+/).filter(p => p.length >= 3);
+            const set = new Set([name.toLowerCase(), ...parts.map(p => p.toLowerCase())]);
+            return { id, names: [...set] };
+        }).filter(Boolean);
+        // Скоринг: свежие сообщения весят больше, имя в поле name весит ещё больше
+        const score = Object.create(null);
+        tail.forEach((m, idx) => {
+            const recency = idx + 1; // 1..lookback
+            const msgName = String(m?.name || '').toLowerCase();
+            const text = String(m?.mes || '').toLowerCase();
+            for (const v of variants) {
+                for (const n of v.names) {
+                    if (msgName === n) score[v.id] = (score[v.id] || 0) + recency * 5;
+                    else if (text.includes(n)) score[v.id] = (score[v.id] || 0) + recency;
+                }
+            }
+        });
+        let bestId = null, best = 0;
+        for (const [id, sc] of Object.entries(score)) {
+            if (sc > best) { best = sc; bestId = id; }
+        }
+        return bestId;
+    } catch (e) {
+        console.warn('[Spark] detectBoyFromMainChat failed:', e);
+        return null;
+    }
+}
+
 // ── Сводка для основного чата ST ──
 export function syncToMainChat() {
     const settings = getSettings();
     if (!settings.injectIntoMain) {
         setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.IN_PROMPT, 0);
-        return;
+        return '';
     }
     const ROSTER = getRoster();
     const s = loadState();
@@ -438,6 +494,31 @@ export function syncToMainChat() {
         activeBoyId = s.openChatBoy;
         matchSource = 'openChatBoy';
     }
+    // Доп. fallback: если openChatBoy ещё не выставлен (юзер ни разу не открывал
+    // чат внутри Spark), берём парня с самым свежим сообщением в переписке.
+    if (!activeBoyId) {
+        let bestId = null, bestTs = 0;
+        for (const [id, arr] of Object.entries(s.messages || {})) {
+            if (!ROSTER[id] || !Array.isArray(arr) || !arr.length) continue;
+            const last = arr[arr.length - 1];
+            const ts = Number(last?.ts || last?.time || 0);
+            if (ts >= bestTs) { bestTs = ts; bestId = id; }
+        }
+        if (bestId) {
+            activeBoyId = bestId;
+            matchSource = 'lastMessaged';
+        }
+    }
+    // Ещё один fallback: единственный матч в ростере — он и есть активный.
+    if (!activeBoyId) {
+        const matchedIds = Object.entries(s.matches || {})
+            .filter(([id, m]) => ROSTER[id] && ['matched', 'cold_one_message', 'matched_silent'].includes(m.status))
+            .map(([id]) => id);
+        if (matchedIds.length === 1) {
+            activeBoyId = matchedIds[0];
+            matchSource = 'soleMatch';
+        }
+    }
 
     // Модалка открыта — добавляем общий обзор Spark (матчи, свайпы и т.д.)
     const modal = document.getElementById('spark-modal');
@@ -446,7 +527,7 @@ export function syncToMainChat() {
     // Если ни активного бой-персонажа, ни открытой модалки — ничего не инжектим.
     if (!activeBoyId && !isOpen) {
         setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.IN_PROMPT, 0);
-        return;
+        return '';
     }
 
     const matches = Object.entries(s.matches).filter(([_, m]) => ['matched', 'cold_one_message', 'matched_silent'].includes(m.status));
@@ -505,12 +586,41 @@ export function syncToMainChat() {
     if (lines.length <= 1) {
         // Только заголовок без контента — не инжектим.
         setExtensionPrompt(PROMPT_KEY, '', extension_prompt_types.IN_PROMPT, 0);
-        return;
+        return '';
     }
 
     const text = lines.join('\n');
     setExtensionPrompt(PROMPT_KEY, text, extension_prompt_types.IN_PROMPT, settings.injectDepth || 4);
     console.log(`[Spark] inject → ${text.length} симв., activeBoy=${activeBoyId} (${matchSource}), depth=${settings.injectDepth || 4}`);
+    return text;
+}
+
+// Прямой инжект в массив messages чат-комплишена. Используется как страховка
+// поверх setExtensionPrompt — если ST по какой-то причине не подмешал нашу
+// инжекцию (preset prompts, фильтры и т.п.), мы её всё равно добавим сами.
+export function injectIntoChatCompletion(eventData) {
+    try {
+        const settings = getSettings();
+        if (!settings.injectIntoMain) return;
+        const chat = eventData?.chat;
+        if (!Array.isArray(chat)) return;
+        const text = syncToMainChat();
+        if (!text) return;
+        // Проверяем, не подмешал ли ST уже наш блок (по уникальному маркеру).
+        const marker = '[SPARK APP STATE';
+        const already = chat.some(m => typeof m?.content === 'string' && m.content.includes(marker));
+        if (already) return;
+        // Вставляем перед последним user-сообщением (или в конец если такого нет).
+        const sysMsg = { role: 'system', content: text };
+        let insertAt = chat.length;
+        for (let i = chat.length - 1; i >= 0; i--) {
+            if (chat[i]?.role === 'user') { insertAt = i; break; }
+        }
+        chat.splice(insertAt, 0, sysMsg);
+        console.log(`[Spark] direct chat-completion inject (fallback) at index ${insertAt}, ${text.length} симв.`);
+    } catch (e) {
+        console.warn('[Spark] injectIntoChatCompletion failed:', e);
+    }
 }
 
 export function clearMainChatInjection() {

@@ -6,7 +6,7 @@ import { eventSource, event_types } from '../../../../script.js';
 import { reloadRoster, getRoster } from './roster.js';
 import { loadState, getSettings } from './state.js';
 import { render, handleAction, updateFabBadge, handleFileInput, handleSettingChange } from './ui.js';
-import { syncToMainChat, clearMainChatInjection, debugSparkInjection } from './engine.js';
+import { syncToMainChat, clearMainChatInjection, debugSparkInjection, injectIntoChatCompletion } from './engine.js';
 
 const LOG = '[Spark]';
 
@@ -229,6 +229,21 @@ async function init() {
     if (eventSource && event_types) {
         eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
         if (event_types.APP_READY) eventSource.on(event_types.APP_READY, onChatChanged);
+        // Гарантируем свежий инжект ПЕРЕД каждой генерацией основного чата —
+        // иначе если юзер не открывал Spark с момента загрузки, контекст не уйдёт.
+        if (event_types.GENERATION_STARTED) {
+            eventSource.on(event_types.GENERATION_STARTED, () => {
+                try { syncToMainChat(); } catch (e) { console.warn(LOG, 'sync on GENERATION_STARTED failed:', e); }
+            });
+        }
+        // Страховка для chat completion (OpenAI/Claude/Gemini через прокси): иногда
+        // setExtensionPrompt не доезжает до финального messages[] (preset prompts,
+        // фильтры, кастомные пресеты). Поэтому добавляем напрямую в массив.
+        if (event_types.CHAT_COMPLETION_PROMPT_READY) {
+            eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (eventData) => {
+                injectIntoChatCompletion(eventData);
+            });
+        }
     }
 
     // Отложенная инициализация: ждём пока ST загрузит чат
