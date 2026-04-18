@@ -178,7 +178,7 @@ export async function generateBoyReply(boyId) {
     // Гарантируем, что карточка распарсена из лорбука (ленивый парс по требованию)
     try { await ensureBoyCard(boyId); } catch (e) { console.warn('[Spark] ensureBoyCard before reply failed:', e); }
     const s = loadState();
-    const history = (s.messages[boyId] || []).slice(-20);
+    const history = (s.messages[boyId] || []).slice(-40);
 
     const persona = getUserPersona();
     const userLabel = persona.name || 'Она';
@@ -267,7 +267,7 @@ ${lorebookBlock}
 Стиль письма: ${boy.writeStyle} — ${boy.styleNote || ''}
 Внешность (для фото): ${boy.imagePrompt || '(не задано)'}
 ${extraBlock}${personaBlock}${encounterBlock}
-ИСТОРИЯ ПЕРЕПИСКИ:
+ИСТОРИЯ ПЕРЕПИСКИ (это РЕАЛЬНАЯ переписка между тобой и ${userLabel} в Spark; реплики где автор = "${boy.name}" — это ТВОИ собственные прошлые сообщения, помни их и не противоречь себе; реплики где автор = "${userLabel}" — её сообщения, отвечай ИМЕННО на её последнюю реплику, не игнорируй её и не уходи в свою тему):
 ${historyText || `(ещё не переписывались — это твоё первое сообщение после матча в Spark с ${userLabel})`}
 
 ЗАДАЧА: Напиши следующее сообщение(я) от лица ${boy.name}. Следуй стилю письма дословно (объём, тон, темп, эмодзи). Если по стилю он шлёт несколько сообщений подряд — раздели через двойной перенос строки. Если одно удаляет — оберни в [DELETED]текст[/DELETED].

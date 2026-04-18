@@ -212,12 +212,22 @@
     display: flex; align-items: center; justify-content: center;
     opacity: 0; transition: opacity .2s, transform .15s;
     -webkit-tap-highlight-color: transparent;
-    z-index: 2;
+    z-index: 5;
+    touch-action: manipulation;
 }
+.spark-msg-image-regen * { pointer-events: none; }
 .spark-msg-image-regen svg { width: 14px; height: 14px; fill: currentColor; }
 .spark-msg-image-wrap:hover .spark-msg-image-regen { opacity: 1; }
 .spark-msg-image-regen:active { transform: scale(.92); background: rgba(255, 107, 157, .8); }
-@media (hover: none) { .spark-msg-image-regen { opacity: .85; } }
+@media (hover: none) {
+    .spark-msg-image-regen {
+        opacity: 1;
+        width: 38px; height: 38px;
+        background: rgba(0, 0, 0, .75);
+        border-color: rgba(255, 107, 157, .5);
+    }
+    .spark-msg-image-regen svg { width: 18px; height: 18px; }
+}
 .spark-msg-image-regen-failed {
     position: static; opacity: 1;
     margin-top: 6px; width: auto; height: 28px;
